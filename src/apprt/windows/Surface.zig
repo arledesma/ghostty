@@ -91,6 +91,20 @@ height: u32,
 title: ?[:0]const u8,
 
 // ---------------------------------------------------------------------------
+// Accessors
+// ---------------------------------------------------------------------------
+
+/// Return a pointer to the core surface for use by App-level code.
+pub fn core(self: *Surface) *CoreSurface {
+    return &self.core_surface;
+}
+
+/// Return the apprt App that owns this surface.
+pub fn rtApp(self: *const Surface) *App {
+    return self.app;
+}
+
+// ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
@@ -100,10 +114,6 @@ pub fn init(self: *Surface, app: *App, config: *const configpkg.Config, core_app
 
     // Initialize WGL context on the HWND.
     const ctx = try wgl.initContext(hwnd);
-
-    // Release the WGL context from this thread -- the renderer thread will
-    // make it current when it starts.
-    wgl.releaseCurrent();
 
     // Get initial client area dimensions.
     var rect: RECT = std.mem.zeroes(RECT);
@@ -125,6 +135,9 @@ pub fn init(self: *Surface, app: *App, config: *const configpkg.Config, core_app
     };
 
     // Initialize the core surface (PTY, terminal, renderer thread, etc.).
+    // The WGL context must remain current for surfaceInit to load GL
+    // function pointers via GLAD. After init, release it so the renderer
+    // thread can make it current when it starts.
     try self.core_surface.init(
         app.alloc,
         config,
@@ -133,11 +146,20 @@ pub fn init(self: *Surface, app: *App, config: *const configpkg.Config, core_app
         self,
     );
 
+    // Register with the core app so it knows about this surface.
+    try core_app.addSurface(self);
+
+    // Release the WGL context from the main thread -- the renderer thread
+    // will call threadEnter/makeCurrent when it starts.
+    wgl.releaseCurrent();
+
     log.info("Surface initialized with WGL context, size={}x{}", .{ w, h });
 }
 
 /// Destroy the surface: deinit core surface, release WGL context.
 pub fn deinit(self: *Surface) void {
+    // Unregister from the core app before destroying the surface.
+    self.app.core_app.deleteSurface(self);
     self.core_surface.deinit();
     wgl.releaseCurrent();
     wgl.deleteContext(self.hglrc);

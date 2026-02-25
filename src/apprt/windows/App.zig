@@ -78,6 +78,18 @@ const WM_SYSCHAR: u32 = 0x0106;
 const WM_DPICHANGED: u32 = 0x02E0;
 const WM_SETTINGCHANGE: u32 = 0x001A;
 
+// Mouse messages
+const WM_LBUTTONDOWN: u32 = 0x0201;
+const WM_LBUTTONUP: u32 = 0x0202;
+const WM_RBUTTONDOWN: u32 = 0x0204;
+const WM_RBUTTONUP: u32 = 0x0205;
+const WM_MBUTTONDOWN: u32 = 0x0207;
+const WM_MBUTTONUP: u32 = 0x0208;
+const WM_MOUSEMOVE: u32 = 0x0200;
+const WM_MOUSEWHEEL: u32 = 0x020A;
+const WM_SETFOCUS: u32 = 0x0007;
+const WM_KILLFOCUS: u32 = 0x0008;
+
 const CS_OWNDC: u32 = 0x0020;
 const CS_HREDRAW: u32 = 0x0002;
 const CS_VREDRAW: u32 = 0x0001;
@@ -192,10 +204,14 @@ extern "advapi32" fn RegCloseKey(hKey: usize) callconv(.c) i32;
 // ---------------------------------------------------------------------------
 
 surface: Surface = undefined,
+surface_initialized: bool = false,
 hwnd: ?HWND = null,
 core_app: *CoreApp = undefined,
 alloc: Allocator = undefined,
 config: *const configpkg.Config = undefined,
+
+/// Owned config loaded at startup for the initial surface.
+owned_config: ?configpkg.Config = null,
 
 /// Fullscreen state.
 is_fullscreen: bool = false,
@@ -269,10 +285,12 @@ pub fn init(
 pub fn initSurface(self: *App, config: *const configpkg.Config) !void {
     self.config = config;
     try self.surface.init(self, config, self.core_app);
+    self.surface_initialized = true;
 }
 
 pub fn terminate(self: *App) void {
-    self.surface.deinit();
+    if (self.surface_initialized) self.surface.deinit();
+    if (self.owned_config) |*c| c.deinit();
     if (self.hwnd) |hwnd| _ = DestroyWindow(hwnd);
     self.hwnd = null;
     com.roUninitialize();
@@ -280,6 +298,16 @@ pub fn terminate(self: *App) void {
 
 pub fn run(self: *App) !void {
     var msg: MSG = std.mem.zeroes(MSG);
+
+    // Queue the initial window creation, mirroring GTK's activate signal.
+    // The core App.tick() will process this and call performAction(.new_window).
+    _ = self.core_app.mailbox.push(.{
+        .new_window = .{},
+    }, .{ .forever = {} });
+
+    // Perform an initial tick to process the new_window message before
+    // entering the blocking GetMessageW loop.
+    try self.core_app.tick(self);
 
     // Main message loop: GetMessageW blocks until a message arrives.
     // core_app.tick() is called after each batch of messages to drain the mailbox.
@@ -314,29 +342,35 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
         },
         WM_SIZE => {
             if (app) |a| {
-                const w: u32 = @intCast(lparam & 0xFFFF);
-                const h: u32 = @intCast((lparam >> 16) & 0xFFFF);
-                a.surface.sizeCallback(w, h);
+                if (a.surface_initialized) {
+                    const w: u32 = @intCast(lparam & 0xFFFF);
+                    const h: u32 = @intCast((lparam >> 16) & 0xFFFF);
+                    a.surface.sizeCallback(w, h);
+                }
             }
             return 0;
         },
         WM_SIZING => {
             if (app) |a| {
-                // Cell-snapped resize: snap the dragged rect to cell boundaries.
-                const rect_ptr: *RECT = @ptrFromInt(@as(usize, @intCast(lparam)));
-                a.snapResizeRect(rect_ptr, wparam);
+                if (a.surface_initialized) {
+                    // Cell-snapped resize: snap the dragged rect to cell boundaries.
+                    const rect_ptr: *RECT = @ptrFromInt(@as(usize, @intCast(lparam)));
+                    a.snapResizeRect(rect_ptr, wparam);
+                }
             }
             return 1; // return TRUE to indicate we modified the rect
         },
         WM_KEYDOWN, WM_SYSKEYDOWN, WM_KEYUP, WM_SYSKEYUP => {
             if (app) |a| {
-                const input_mod = @import("input.zig");
-                if (input_mod.translateKeyEvent(msg, wparam, lparam)) |key_event| {
-                    const effect = a.surface.core_surface.keyCallback(key_event) catch .ignored;
-                    // For syskey messages, if consumed by Ghostty, don't let
-                    // Windows process Alt menu activation.
-                    if ((msg == WM_SYSKEYDOWN or msg == WM_SYSKEYUP) and effect == .consumed) {
-                        return 0;
+                if (a.surface_initialized) {
+                    const input_mod = @import("input.zig");
+                    if (input_mod.translateKeyEvent(msg, wparam, lparam)) |key_event| {
+                        const effect = a.surface.core_surface.keyCallback(key_event) catch .ignored;
+                        // For syskey messages, if consumed by Ghostty, don't let
+                        // Windows process Alt menu activation.
+                        if ((msg == WM_SYSKEYDOWN or msg == WM_SYSKEYUP) and effect == .consumed) {
+                            return 0;
+                        }
                     }
                 }
             }
@@ -362,8 +396,10 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
                     suggested.bottom - suggested.top,
                     SWP_NOZORDER | SWP_FRAMECHANGED,
                 );
-                // Notify core of the DPI change.
-                a.surface.contentScaleCallback(new_dpi);
+                // Notify core of the DPI change if surface is ready.
+                if (a.surface_initialized) {
+                    a.surface.contentScaleCallback(new_dpi);
+                }
             }
             return 0;
         },
@@ -387,6 +423,95 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
                 }
             }
             return DefWindowProcW(hwnd, msg, wparam, lparam);
+        },
+        WM_LBUTTONDOWN, WM_LBUTTONUP,
+        WM_RBUTTONDOWN, WM_RBUTTONUP,
+        WM_MBUTTONDOWN, WM_MBUTTONUP,
+        => {
+            if (app) |a| {
+                if (a.surface_initialized) {
+                    const input_mod = @import("input.zig");
+                    const input_types = @import("../../input.zig");
+                    const button: input_types.MouseButton = switch (msg) {
+                        WM_LBUTTONDOWN, WM_LBUTTONUP => .left,
+                        WM_RBUTTONDOWN, WM_RBUTTONUP => .right,
+                        WM_MBUTTONDOWN, WM_MBUTTONUP => .middle,
+                        else => unreachable,
+                    };
+                    const action: input_types.MouseButtonState = switch (msg) {
+                        WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN => .press,
+                        WM_LBUTTONUP, WM_RBUTTONUP, WM_MBUTTONUP => .release,
+                        else => unreachable,
+                    };
+                    const mods = input_mod.getModifiers();
+
+                    // Update cursor position before reporting the button event.
+                    const x: i16 = @bitCast(@as(u16, @intCast(lparam & 0xFFFF)));
+                    const y: i16 = @bitCast(@as(u16, @intCast((lparam >> 16) & 0xFFFF)));
+                    const pos = apprt.CursorPos{
+                        .x = @floatFromInt(x),
+                        .y = @floatFromInt(y),
+                    };
+                    a.surface.core_surface.cursorPosCallback(pos, null) catch |err| {
+                        log.warn("cursorPosCallback error in mouse button: {}", .{err});
+                    };
+                    _ = a.surface.core_surface.mouseButtonCallback(action, button, mods) catch |err| {
+                        log.warn("mouseButtonCallback error: {}", .{err});
+                    };
+                }
+            }
+            return 0;
+        },
+        WM_MOUSEMOVE => {
+            if (app) |a| {
+                if (a.surface_initialized) {
+                    const input_mod = @import("input.zig");
+                    const x: i16 = @bitCast(@as(u16, @intCast(lparam & 0xFFFF)));
+                    const y: i16 = @bitCast(@as(u16, @intCast((lparam >> 16) & 0xFFFF)));
+                    const pos = apprt.CursorPos{
+                        .x = @floatFromInt(x),
+                        .y = @floatFromInt(y),
+                    };
+                    const mods = input_mod.getModifiers();
+                    a.surface.core_surface.cursorPosCallback(pos, mods) catch |err| {
+                        log.warn("cursorPosCallback error: {}", .{err});
+                    };
+                }
+            }
+            return 0;
+        },
+        WM_MOUSEWHEEL => {
+            if (app) |a| {
+                if (a.surface_initialized) {
+                    // High word of wParam is the wheel delta (signed).
+                    const raw_delta: i16 = @bitCast(@as(u16, @intCast((wparam >> 16) & 0xFFFF)));
+                    const delta: f64 = @as(f64, @floatFromInt(raw_delta)) / 120.0;
+                    a.surface.core_surface.scrollCallback(0, delta, .{}) catch |err| {
+                        log.warn("scrollCallback error: {}", .{err});
+                    };
+                }
+            }
+            return 0;
+        },
+        WM_SETFOCUS => {
+            if (app) |a| {
+                if (a.surface_initialized) {
+                    a.surface.core_surface.focusCallback(true) catch |err| {
+                        log.warn("focusCallback error: {}", .{err});
+                    };
+                }
+            }
+            return 0;
+        },
+        WM_KILLFOCUS => {
+            if (app) |a| {
+                if (a.surface_initialized) {
+                    a.surface.core_surface.focusCallback(false) catch |err| {
+                        log.warn("focusCallback error: {}", .{err});
+                    };
+                }
+            }
+            return 0;
         },
         WM_APP_WAKEUP => {
             // No-op: just wakes up GetMessageW so we can tick the core.
@@ -599,9 +724,15 @@ pub fn performAction(
                 try self.core_app.updateConfig(self, self.config);
             } else {
                 // Hard reload: load config from disk and propagate.
-                var config = try CoreConfig.load(self.alloc);
-                defer config.deinit();
-                try self.core_app.updateConfig(self, &config);
+                // Replace the owned config so it lives as long as the app.
+                var new_config = try CoreConfig.load(self.alloc);
+                errdefer new_config.deinit();
+                try self.core_app.updateConfig(self, &new_config);
+
+                // Swap: deinit old config, store new one.
+                if (self.owned_config) |*old| old.deinit();
+                self.owned_config = new_config;
+                self.config = &self.owned_config.?;
             }
             return true;
         },
@@ -611,6 +742,16 @@ pub fn performAction(
             self.config = new_config;
             if (self.hwnd) |hwnd| {
                 applyThemeToTitlebar(hwnd, detectSystemThemeIsDark());
+            }
+            return true;
+        },
+        .new_window => {
+            _ = target;
+            if (!self.surface_initialized) {
+                // Load config from disk and create the initial surface.
+                const config = try CoreConfig.load(self.alloc);
+                self.owned_config = config;
+                try self.initSurface(&self.owned_config.?);
             }
             return true;
         },

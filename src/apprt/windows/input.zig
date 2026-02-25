@@ -25,6 +25,7 @@ const WM_SYSKEYUP: u32 = 0x0105;
 
 // Virtual key codes for modifier detection
 const VK_SHIFT: i32 = 0x10;
+const VK_SHIFT_U: u8 = 0x10;
 const VK_CONTROL: i32 = 0x11;
 const VK_MENU: i32 = 0x12; // Alt
 const VK_LWIN: i32 = 0x5B;
@@ -74,6 +75,8 @@ pub fn translateKeyEvent(msg: u32, wparam: WPARAM, lparam: LPARAM) ?input.KeyEve
     // Generate text via ToUnicode (only for press/repeat, not release).
     var utf8_buf: [16]u8 = undefined;
     var utf8_len: usize = 0;
+    var consumed_mods: input.Mods = .{};
+    var unshifted_codepoint: u21 = 0;
 
     if (action != .release) {
         var keyboard_state: [256]u8 = undefined;
@@ -90,6 +93,30 @@ pub fn translateKeyEvent(msg: u32, wparam: WPARAM, lparam: LPARAM) ?input.KeyEve
             if (result > 0) {
                 const utf16_slice = utf16_buf[0..@intCast(result)];
                 utf8_len = std.unicode.utf16LeToUtf8(&utf8_buf, utf16_slice) catch 0;
+
+                // If shift was held and produced text, shift was consumed
+                // for text generation (e.g., Shift+a -> "A").
+                if (mods.shift) consumed_mods.shift = true;
+            }
+
+            // Compute unshifted codepoint by calling ToUnicode with shift
+            // cleared from the keyboard state. This gives us the base
+            // character for the key (e.g., 'a' even when Shift is held).
+            var unshifted_state = keyboard_state;
+            unshifted_state[VK_SHIFT_U] = 0; // Clear shift
+            var unshifted_utf16: [4]u16 = undefined;
+            const unshifted_result = ToUnicode(
+                @intCast(wparam),
+                scancode,
+                &unshifted_state,
+                &unshifted_utf16,
+                4,
+                0,
+            );
+            if (unshifted_result > 0) {
+                // For standard keyboard input the result is a single BMP
+                // code unit, so we can directly use it as the codepoint.
+                unshifted_codepoint = @intCast(unshifted_utf16[0]);
             }
         }
     }
@@ -98,7 +125,9 @@ pub fn translateKeyEvent(msg: u32, wparam: WPARAM, lparam: LPARAM) ?input.KeyEve
         .action = action,
         .key = key,
         .mods = mods,
+        .consumed_mods = consumed_mods,
         .utf8 = if (utf8_len > 0) utf8_buf[0..utf8_len] else "",
+        .unshifted_codepoint = unshifted_codepoint,
     };
 }
 
@@ -118,7 +147,7 @@ pub fn keyFromScancode(scancode: u32) input.Key {
 // ---------------------------------------------------------------------------
 
 /// Build Ghostty modifier state from current Win32 key state.
-fn getModifiers() input.Mods {
+pub fn getModifiers() input.Mods {
     var mods: input.Mods = .{};
 
     // GetKeyState returns negative (high bit set) if key is pressed.
