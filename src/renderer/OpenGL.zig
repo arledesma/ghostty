@@ -176,7 +176,10 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         },
 
         apprt.windows => {
-            // TODO: Windows OpenGL via ANGLE/EGL -- implemented in Plan 02
+            // Load GLES function pointers via ANGLE's eglGetProcAddress.
+            // ANGLE exposes GLES 3.1 functions through its EGL loader.
+            const angle = @import("../apprt/windows/angle.zig");
+            try prepareContext(&angle.eglGetProcAddress);
         },
     }
 
@@ -200,7 +203,6 @@ pub fn finalizeSurfaceInit(self: *const OpenGL, surface: *apprt.Surface) !void {
 /// Callback called by renderer.Thread when it begins.
 pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
-    _ = surface;
 
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
@@ -219,7 +221,8 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
         },
 
         apprt.windows => {
-            // TODO: Windows EGL context management -- implemented in Plan 02
+            // Make EGL context current on the renderer thread via ANGLE.
+            surface.threadEnter();
         },
     }
 }
@@ -241,7 +244,11 @@ pub fn threadExit(self: *const OpenGL) void {
         },
 
         apprt.windows => {
-            // TODO: Windows EGL context release -- implemented in Plan 02
+            // Release EGL context from the renderer thread.
+            // threadExit doesn't take surface, so we need a different approach.
+            // For now, this is a no-op; the context is released when the
+            // Surface is deinitialized. The renderer thread typically only
+            // exits once at shutdown.
         },
     }
 }
