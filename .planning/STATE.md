@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 ## Current Position
 
 Phase: 1 of 4 (Foundation & Rendering Bridge)
-Plan: 0 of 3 in current phase
-Status: Ready to plan
-Last activity: 2026-02-24 -- Roadmap created
+Plan: 1 of 3 in current phase
+Status: Executing
+Last activity: 2026-02-24 -- Completed 01-01-PLAN.md
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 10%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+- Total plans completed: 1
+- Average duration: 7min
+- Total execution time: 0.1 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 1 | 1 | 7min | 7min |
 
 **Recent Trend:**
-- Last 5 plans: -
-- Trend: -
+- Last 5 plans: 01-01 (7min)
+- Trend: baseline
 
 *Updated after each plan completion*
 
@@ -44,6 +44,9 @@ Recent decisions affecting current work:
 
 - [Roadmap]: 4-phase structure derived from dependency analysis -- COM/ANGLE derisking first, then single surface, then multi-surface, then platform integration
 - [Roadmap]: INFRA requirements grouped into Phase 1 as foundation; all other phases build on validated infrastructure
+- [01-01]: Used api-ms-win-core-winrt extern linking for WinRT activation APIs instead of zigwin32
+- [01-01]: ISwapChainPanelNative inherits from IUnknown (3 base), all other WinUI interfaces from IInspectable (6 base)
+- [01-01]: Windows apprt GObject switches use void (same as none) since Windows has no GObject dependency
 
 ### Pending Todos
 
@@ -57,5 +60,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Roadmap created, ready to plan Phase 1
+Stopped at: Completed 01-01-PLAN.md
 Resume file: None

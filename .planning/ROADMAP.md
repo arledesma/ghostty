@@ -28,12 +28,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Ghostty's OpenGL renderer draws a visible frame into a SwapChainPanel via ANGLE (GLES 3.1 path validated)
   3. DirectWrite font discovery returns system fonts that Freetype can rasterize
   4. The new apprt backend compiles alongside GLFW without conflicts via compile-time apprt selection
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: COM bridge and WinUI 3 window bootstrap
-- [ ] 01-02: ANGLE integration and SwapChainPanel rendering
-- [ ] 01-03: DirectWrite font discovery backend and apprt scaffold
+- [ ] 01-01-PLAN.md — COM/WinRT bridge helpers, WinUI 3 vtable definitions, and apprt backend scaffold
+- [ ] 01-02-PLAN.md — ANGLE EGL integration, SwapChainPanel rendering, and GLES 3.1 shader porting
+- [x] 01-03-PLAN.md — DirectWrite font discovery backend with Freetype rasterization
 
 ### Phase 2: Single Terminal Surface
 **Goal**: A user can launch Ghostty on Windows and use it as a fully functional single-tab terminal with native look and feel
@@ -90,7 +90,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Rendering Bridge | 0/3 | Not started | - |
+| 1. Foundation & Rendering Bridge | 1/3 | In progress | - |
 | 2. Single Terminal Surface | 0/2 | Not started | - |
 | 3. Tabs, Splits & Terminal Features | 0/3 | Not started | - |
 | 4. Platform Integration & Distribution | 0/2 | Not started | - |

@@ -46,10 +46,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Infrastructure
 
-- [ ] **INFRA-01**: COM-based Zig-to-WinRT bridge using zigwin32 + manual WinUI 3 vtable definitions
+- [x] **INFRA-01**: COM-based Zig-to-WinRT bridge using zigwin32 + manual WinUI 3 vtable definitions
 - [ ] **INFRA-02**: ANGLE integration translating OpenGL to D3D11 for SwapChainPanel hosting
-- [ ] **INFRA-03**: DirectWrite font discovery with Freetype rasterization (directwrite_freetype backend)
-- [ ] **INFRA-04**: New apprt backend (`src/apprt/windows/`) coexisting with GLFW during development
+- [x] **INFRA-03**: DirectWrite font discovery with Freetype rasterization (directwrite_freetype backend)
+- [x] **INFRA-04**: New apprt backend (`src/apprt/windows/`) coexisting with GLFW during development
 
 ## v2 Requirements
 
@@ -121,10 +121,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PLAT-02 | Phase 4 | Pending |
 | PLAT-03 | Phase 4 | Pending |
 | PLAT-04 | Phase 4 | Pending |
-| INFRA-01 | Phase 1 | Pending |
+| INFRA-01 | Phase 1 | Complete |
 | INFRA-02 | Phase 1 | Pending |
-| INFRA-03 | Phase 1 | Pending |
-| INFRA-04 | Phase 1 | Pending |
+| INFRA-03 | Phase 1 | Complete |
+| INFRA-04 | Phase 1 | Complete |
 
 **Coverage:**
 - v1 requirements: 26 total
