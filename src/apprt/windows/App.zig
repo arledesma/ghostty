@@ -1,8 +1,8 @@
-/// Windows apprt backend (Win32 HWND + WGL OpenGL).
+/// Windows apprt backend (Win32 HWND + WGL OpenGL) with multi-tab support.
 ///
-/// Creates a native Win32 window with standard WS_OVERLAPPEDWINDOW chrome,
-/// initializes a core Surface (PTY, terminal, renderer), and runs a message
-/// loop that ticks the core mailbox.
+/// Creates a native Win32 window with a custom tab bar rendered in the
+/// titlebar area via DwmExtendFrameIntoClientArea. Manages an ArrayList
+/// of Tabs, each with its own child HWND and WGL context.
 const App = @This();
 
 const std = @import("std");
@@ -14,6 +14,7 @@ const CoreConfig = configpkg.Config;
 const com = @import("com.zig");
 const wgl = @import("wgl.zig");
 const Surface = @import("Surface.zig");
+const Tab = @import("Tab.zig");
 
 const log = std.log.scoped(.windows);
 
@@ -64,11 +65,34 @@ const MONITORINFO = extern struct {
     dwFlags: u32 = 0,
 };
 
+const PAINTSTRUCT = extern struct {
+    hdc: ?HDC,
+    fErase: BOOL,
+    rcPaint: RECT,
+    fRestore: BOOL,
+    fIncUpdate: BOOL,
+    rgbReserved: [32]u8,
+};
+
+const HDC = *anyopaque;
+const HBRUSH = *anyopaque;
+const HFONT = *anyopaque;
+const HGDIOBJ = *anyopaque;
+
+const MARGINS = extern struct {
+    cxLeftWidth: i32,
+    cxRightWidth: i32,
+    cyTopHeight: i32,
+    cyBottomHeight: i32,
+};
+
 const WM_QUIT: u32 = 0x0012;
 const WM_CLOSE: u32 = 0x0010;
 const WM_DESTROY: u32 = 0x0002;
 const WM_SIZE: u32 = 0x0005;
 const WM_SIZING: u32 = 0x0214;
+const WM_PAINT: u32 = 0x000F;
+const WM_NCHITTEST: u32 = 0x0084;
 const WM_KEYDOWN: u32 = 0x0100;
 const WM_KEYUP: u32 = 0x0101;
 const WM_SYSKEYDOWN: u32 = 0x0104;
@@ -135,6 +159,14 @@ const MONITOR_DEFAULTTONEAREST: u32 = 0x00000002;
 // HWND_TOP for SetWindowPos
 const HWND_TOP: ?HWND = null;
 
+// WM_NCHITTEST return values
+const HTCAPTION: LRESULT = 2;
+const HTCLIENT: LRESULT = 1;
+
+// GDI constants
+const TRANSPARENT: i32 = 1;
+const NULL_BRUSH: i32 = 5;
+
 // ---------------------------------------------------------------------------
 // Win32 function imports
 // ---------------------------------------------------------------------------
@@ -182,6 +214,12 @@ extern "user32" fn GetWindowPlacement(hwnd: HWND, lpwndpl: *WINDOWPLACEMENT) cal
 extern "user32" fn SetWindowPlacement(hwnd: HWND, lpwndpl: *const WINDOWPLACEMENT) callconv(.c) BOOL;
 extern "user32" fn MonitorFromWindow(hwnd: HWND, dwFlags: u32) callconv(.c) ?*anyopaque;
 extern "user32" fn GetMonitorInfoW(hMonitor: *anyopaque, lpmi: *MONITORINFO) callconv(.c) BOOL;
+extern "user32" fn InvalidateRect(hwnd: ?HWND, lpRect: ?*const RECT, bErase: BOOL) callconv(.c) BOOL;
+extern "user32" fn BeginPaint(hwnd: HWND, lpPaint: *PAINTSTRUCT) callconv(.c) ?HDC;
+extern "user32" fn EndPaint(hwnd: HWND, lpPaint: *const PAINTSTRUCT) callconv(.c) BOOL;
+extern "user32" fn SetCapture(hwnd: HWND) callconv(.c) ?HWND;
+extern "user32" fn ReleaseCapture() callconv(.c) BOOL;
+extern "user32" fn GetKeyState(nVirtKey: i32) callconv(.c) i16;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?LPCWSTR) callconv(.c) ?HINSTANCE;
 
 // DPI awareness
@@ -191,8 +229,18 @@ const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: isize = -4;
 // DPI-aware window rect adjustment
 extern "user32" fn AdjustWindowRectExForDpi(lpRect: *RECT, dwStyle: DWORD, bMenu: BOOL, dwExStyle: DWORD, dpi: u32) callconv(.c) BOOL;
 
-// DWM for dark titlebar
+// DWM
 extern "dwmapi" fn DwmSetWindowAttribute(hwnd: HWND, dwAttribute: u32, pvAttribute: *const anyopaque, cbAttribute: u32) callconv(.c) i32;
+extern "dwmapi" fn DwmExtendFrameIntoClientArea(hwnd: HWND, pMarInset: *const MARGINS) callconv(.c) i32;
+
+// GDI
+extern "gdi32" fn FillRect(hdc: HDC, lprc: *const RECT, hbr: HBRUSH) callconv(.c) i32;
+extern "gdi32" fn SetBkMode(hdc: HDC, mode: i32) callconv(.c) i32;
+extern "gdi32" fn SetTextColor(hdc: HDC, color: u32) callconv(.c) u32;
+extern "gdi32" fn TextOutW(hdc: HDC, x: i32, y: i32, lpString: [*]const u16, c: i32) callconv(.c) BOOL;
+extern "gdi32" fn CreateSolidBrush(color: u32) callconv(.c) ?HBRUSH;
+extern "gdi32" fn DeleteObject(ho: HGDIOBJ) callconv(.c) BOOL;
+extern "gdi32" fn GetStockObject(i: i32) callconv(.c) ?HGDIOBJ;
 
 // Registry for theme detection
 extern "advapi32" fn RegOpenKeyExW(hKey: usize, lpSubKey: LPCWSTR, ulOptions: u32, samDesired: u32, phkResult: *usize) callconv(.c) i32;
@@ -203,8 +251,12 @@ extern "advapi32" fn RegCloseKey(hKey: usize) callconv(.c) i32;
 // App state
 // ---------------------------------------------------------------------------
 
-surface: Surface = undefined,
-surface_initialized: bool = false,
+/// All open tabs.
+tabs: std.ArrayList(Tab) = .{},
+
+/// Index of the currently active/visible tab.
+active_tab: usize = 0,
+
 hwnd: ?HWND = null,
 core_app: *CoreApp = undefined,
 alloc: Allocator = undefined,
@@ -218,6 +270,11 @@ is_fullscreen: bool = false,
 saved_style: LONG = 0,
 saved_placement: WINDOWPLACEMENT = .{},
 
+/// Tab drag state for reordering.
+drag_active: bool = false,
+drag_source_index: usize = 0,
+drag_start_x: i32 = 0,
+
 pub fn init(
     self: *App,
     core_app: *CoreApp,
@@ -228,9 +285,11 @@ pub fn init(
     const alloc = core_app.alloc;
     self.alloc = alloc;
     self.core_app = core_app;
+    self.tabs = .{};
+    self.active_tab = 0;
+    self.drag_active = false;
 
     // Set per-monitor DPI awareness V2 before any window creation.
-    // Ignore failure -- may already be set by manifest or prior call.
     _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     // Initialize COM runtime (needed for DirectWrite font discovery).
@@ -273,23 +332,28 @@ pub fn init(
     // Store self pointer in HWND user data so wndProc can retrieve it.
     _ = SetWindowLongPtrW(hwnd, GWLP_USERDATA, @as(LONG_PTR, @intCast(@intFromPtr(self))));
 
+    // Extend the frame into the client area for the tab bar.
+    const margins = MARGINS{
+        .cxLeftWidth = 0,
+        .cxRightWidth = 0,
+        .cyTopHeight = Tab.TAB_BAR_HEIGHT,
+        .cyBottomHeight = 0,
+    };
+    _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+
     // Apply initial titlebar theme based on system setting.
     applyThemeToTitlebar(hwnd, detectSystemThemeIsDark());
 
     _ = ShowWindow(hwnd, SW_SHOW);
-    log.info("Win32 window created and shown", .{});
-}
-
-/// Called after init to create the surface. Separated because the config
-/// is provided by the caller after App.init.
-pub fn initSurface(self: *App, config: *const configpkg.Config) !void {
-    self.config = config;
-    try self.surface.init(self, config, self.core_app);
-    self.surface_initialized = true;
+    log.info("Win32 window created and shown with tab bar", .{});
 }
 
 pub fn terminate(self: *App) void {
-    if (self.surface_initialized) self.surface.deinit();
+    // Deinit all tabs.
+    for (self.tabs.items) |*tab| {
+        tab.deinit();
+    }
+    self.tabs.deinit(self.alloc);
     if (self.owned_config) |*c| c.deinit();
     if (self.hwnd) |hwnd| _ = DestroyWindow(hwnd);
     self.hwnd = null;
@@ -300,7 +364,6 @@ pub fn run(self: *App) !void {
     var msg: MSG = std.mem.zeroes(MSG);
 
     // Queue the initial window creation, mirroring GTK's activate signal.
-    // The core App.tick() will process this and call performAction(.new_window).
     _ = self.core_app.mailbox.push(.{
         .new_window = .{},
     }, .{ .forever = {} });
@@ -310,7 +373,6 @@ pub fn run(self: *App) !void {
     try self.core_app.tick(self);
 
     // Main message loop: GetMessageW blocks until a message arrives.
-    // core_app.tick() is called after each batch of messages to drain the mailbox.
     while (true) {
         const ret = GetMessageW(&msg, null, 0, 0);
         if (ret == 0) break; // WM_QUIT
@@ -326,6 +388,138 @@ pub fn run(self: *App) !void {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Tab management
+// ---------------------------------------------------------------------------
+
+/// Create a new tab, initialize its surface, and make it active.
+pub fn createTab(self: *App) !void {
+    const hwnd = self.hwnd orelse return error.WindowCreationFailed;
+
+    // Get client area dimensions.
+    var client_rect: RECT = std.mem.zeroes(RECT);
+    _ = GetClientRect(hwnd, &client_rect);
+    const client_w: i32 = client_rect.right - client_rect.left;
+    const client_h: i32 = client_rect.bottom - client_rect.top;
+
+    // Load config if not already loaded.
+    if (self.owned_config == null) {
+        self.owned_config = try CoreConfig.load(self.alloc);
+        self.config = &self.owned_config.?;
+    }
+
+    // Hide the current active tab if any.
+    if (self.tabs.items.len > 0 and self.active_tab < self.tabs.items.len) {
+        self.tabs.items[self.active_tab].hide();
+    }
+
+    // Add new tab.
+    const new_index = self.tabs.items.len;
+    try self.tabs.append(self.alloc, .{});
+    errdefer _ = self.tabs.pop();
+
+    var tab = &self.tabs.items[new_index];
+    try tab.init(hwnd, self.alloc, self.config, self.core_app, self, client_w, client_h);
+
+    // Set tab_index on the surface.
+    tab.surface.tab_index = new_index;
+
+    // Make the new tab active.
+    self.active_tab = new_index;
+    tab.show();
+
+    // Redraw the tab bar.
+    self.redrawTabBar();
+
+    log.info("Created tab {}, total tabs: {}", .{ new_index, self.tabs.items.len });
+}
+
+/// Close the tab at the given index.
+pub fn closeTab(self: *App, index: usize) !void {
+    if (index >= self.tabs.items.len) return;
+
+    // Deinit the tab.
+    self.tabs.items[index].deinit();
+    _ = self.tabs.orderedRemove(index);
+
+    // Update tab_index for all remaining tabs.
+    for (self.tabs.items, 0..) |*tab, i| {
+        if (tab.surface_initialized) {
+            tab.surface.tab_index = i;
+        }
+    }
+
+    // If no tabs remain, quit.
+    if (self.tabs.items.len == 0) {
+        PostQuitMessage(0);
+        return;
+    }
+
+    // Adjust active_tab.
+    if (self.active_tab >= self.tabs.items.len) {
+        self.active_tab = self.tabs.items.len - 1;
+    } else if (self.active_tab > index) {
+        self.active_tab -= 1;
+    }
+
+    // Show the new active tab.
+    self.tabs.items[self.active_tab].show();
+    self.redrawTabBar();
+}
+
+/// Switch to the tab at the given index.
+pub fn switchToTab(self: *App, index: usize) void {
+    if (index >= self.tabs.items.len) return;
+    if (index == self.active_tab) return;
+
+    // Hide current tab.
+    self.tabs.items[self.active_tab].hide();
+
+    // Show target tab.
+    self.active_tab = index;
+    self.tabs.items[index].show();
+
+    // Update window title to match the active tab.
+    if (self.hwnd) |hwnd| {
+        const title_str = self.tabs.items[index].getTitle();
+        var buf: [512]u16 = undefined;
+        const len = std.unicode.utf8ToUtf16Le(&buf, title_str) catch 0;
+        if (len < buf.len) {
+            buf[len] = 0;
+            const ptr: LPCWSTR = @ptrCast(&buf);
+            _ = SetWindowTextW(hwnd, ptr);
+        }
+    }
+
+    self.redrawTabBar();
+}
+
+/// Get the active tab's surface, if any.
+fn getActiveSurface(self: *App) ?*Surface {
+    if (self.tabs.items.len == 0) return null;
+    if (self.active_tab >= self.tabs.items.len) return null;
+    const tab = &self.tabs.items[self.active_tab];
+    if (!tab.surface_initialized) return null;
+    return &tab.surface;
+}
+
+/// Trigger a repaint of the tab bar area.
+pub fn redrawTabBar(self: *App) void {
+    if (self.hwnd) |hwnd| {
+        const tab_bar_rect = RECT{
+            .left = 0,
+            .top = 0,
+            .right = 2000, // wide enough to cover any window width
+            .bottom = Tab.TAB_BAR_HEIGHT,
+        };
+        _ = InvalidateRect(hwnd, &tab_bar_rect, 1);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WndProc
+// ---------------------------------------------------------------------------
+
 fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LRESULT {
     // Retrieve App pointer from GWLP_USERDATA.
     const app_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
@@ -340,34 +534,68 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
             PostQuitMessage(0);
             return 0;
         },
+        WM_PAINT => {
+            if (app) |a| {
+                a.paintTabBar(hwnd);
+            }
+            return 0;
+        },
+        WM_NCHITTEST => {
+            if (app) |a| {
+                // Get cursor position in client coords.
+                const x: i16 = @bitCast(@as(u16, @intCast(lparam & 0xFFFF)));
+                const y: i16 = @bitCast(@as(u16, @intCast((lparam >> 16) & 0xFFFF)));
+
+                // Convert screen coords to client coords.
+                var pt = POINT{ .x = x, .y = y };
+                _ = ScreenToClient(hwnd, &pt);
+
+                // If in the tab bar area...
+                if (pt.y >= 0 and pt.y < Tab.TAB_BAR_HEIGHT) {
+                    // Check if over a tab item.
+                    const tab_count: i32 = @intCast(a.tabs.items.len);
+                    if (tab_count > 0 and pt.x >= 0 and pt.x < tab_count * Tab.TAB_ITEM_WIDTH) {
+                        return HTCLIENT; // clickable tab area
+                    }
+                    // Empty tab bar area = draggable caption
+                    return HTCAPTION;
+                }
+            }
+            return DefWindowProcW(hwnd, msg, wparam, lparam);
+        },
         WM_SIZE => {
             if (app) |a| {
-                if (a.surface_initialized) {
-                    const w: u32 = @intCast(lparam & 0xFFFF);
-                    const h: u32 = @intCast((lparam >> 16) & 0xFFFF);
-                    a.surface.sizeCallback(w, h);
+                const w: i32 = @intCast(lparam & 0xFFFF);
+                const h: i32 = @intCast((lparam >> 16) & 0xFFFF);
+
+                // Resize the active tab's child HWND.
+                if (a.tabs.items.len > 0 and a.active_tab < a.tabs.items.len) {
+                    a.tabs.items[a.active_tab].resize(w, h);
+                    if (a.tabs.items[a.active_tab].surface_initialized) {
+                        const content_h: u32 = @intCast(@max(h - Tab.TAB_BAR_HEIGHT, 1));
+                        const content_w: u32 = @intCast(@max(w, 1));
+                        a.tabs.items[a.active_tab].surface.sizeCallback(content_w, content_h);
+                    }
                 }
+                a.redrawTabBar();
             }
             return 0;
         },
         WM_SIZING => {
             if (app) |a| {
-                if (a.surface_initialized) {
-                    // Cell-snapped resize: snap the dragged rect to cell boundaries.
+                if (a.getActiveSurface()) |_| {
                     const rect_ptr: *RECT = @ptrFromInt(@as(usize, @intCast(lparam)));
                     a.snapResizeRect(rect_ptr, wparam);
                 }
             }
-            return 1; // return TRUE to indicate we modified the rect
+            return 1;
         },
         WM_KEYDOWN, WM_SYSKEYDOWN, WM_KEYUP, WM_SYSKEYUP => {
             if (app) |a| {
-                if (a.surface_initialized) {
+                if (a.getActiveSurface()) |surface| {
                     const input_mod = @import("input.zig");
                     if (input_mod.translateKeyEvent(msg, wparam, lparam)) |key_event| {
-                        const effect = a.surface.core_surface.keyCallback(key_event) catch .ignored;
-                        // For syskey messages, if consumed by Ghostty, don't let
-                        // Windows process Alt menu activation.
+                        const effect = surface.core_surface.keyCallback(key_event) catch .ignored;
                         if ((msg == WM_SYSKEYDOWN or msg == WM_SYSKEYUP) and effect == .consumed) {
                             return 0;
                         }
@@ -377,15 +605,11 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
             return DefWindowProcW(hwnd, msg, wparam, lparam);
         },
         WM_CHAR, WM_SYSCHAR => {
-            // Text input is handled via ToUnicode in WM_KEYDOWN translation.
-            // WM_CHAR is dispatched by TranslateMessage but we don't need it.
             return 0;
         },
         WM_DPICHANGED => {
             if (app) |a| {
-                // New DPI is in the low word of wParam.
                 const new_dpi: u32 = @intCast(wparam & 0xFFFF);
-                // lParam points to a suggested RECT for the new window size.
                 const suggested: *const RECT = @ptrFromInt(@as(usize, @intCast(lparam)));
                 _ = SetWindowPos(
                     hwnd,
@@ -396,16 +620,17 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
                     suggested.bottom - suggested.top,
                     SWP_NOZORDER | SWP_FRAMECHANGED,
                 );
-                // Notify core of the DPI change if surface is ready.
-                if (a.surface_initialized) {
-                    a.surface.contentScaleCallback(new_dpi);
+                // Notify all surfaces of the DPI change.
+                for (a.tabs.items) |*tab| {
+                    if (tab.surface_initialized) {
+                        tab.surface.contentScaleCallback(new_dpi);
+                    }
                 }
             }
             return 0;
         },
         WM_SETTINGCHANGE => {
             if (app) |a| {
-                // Check if the setting change is for theme ("ImmersiveColorSet").
                 const lparam_ptr: ?[*:0]const u16 = if (lparam != 0)
                     @ptrFromInt(@as(usize, @intCast(lparam)))
                 else
@@ -424,56 +649,118 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
             }
             return DefWindowProcW(hwnd, msg, wparam, lparam);
         },
-        WM_LBUTTONDOWN, WM_LBUTTONUP,
-        WM_RBUTTONDOWN, WM_RBUTTONUP,
-        WM_MBUTTONDOWN, WM_MBUTTONUP,
-        => {
+        WM_LBUTTONDOWN => {
             if (app) |a| {
-                if (a.surface_initialized) {
-                    const input_mod = @import("input.zig");
-                    const input_types = @import("../../input.zig");
-                    const button: input_types.MouseButton = switch (msg) {
-                        WM_LBUTTONDOWN, WM_LBUTTONUP => .left,
-                        WM_RBUTTONDOWN, WM_RBUTTONUP => .right,
-                        WM_MBUTTONDOWN, WM_MBUTTONUP => .middle,
-                        else => unreachable,
-                    };
-                    const action: input_types.MouseButtonState = switch (msg) {
-                        WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN => .press,
-                        WM_LBUTTONUP, WM_RBUTTONUP, WM_MBUTTONUP => .release,
-                        else => unreachable,
-                    };
-                    const mods = input_mod.getModifiers();
+                const x: i16 = @bitCast(@as(u16, @intCast(lparam & 0xFFFF)));
+                const y: i16 = @bitCast(@as(u16, @intCast((lparam >> 16) & 0xFFFF)));
 
-                    // Update cursor position before reporting the button event.
-                    const x: i16 = @bitCast(@as(u16, @intCast(lparam & 0xFFFF)));
-                    const y: i16 = @bitCast(@as(u16, @intCast((lparam >> 16) & 0xFFFF)));
-                    const pos = apprt.CursorPos{
-                        .x = @floatFromInt(x),
-                        .y = @floatFromInt(y),
-                    };
-                    a.surface.core_surface.cursorPosCallback(pos, null) catch |err| {
-                        log.warn("cursorPosCallback error in mouse button: {}", .{err});
-                    };
-                    _ = a.surface.core_surface.mouseButtonCallback(action, button, mods) catch |err| {
-                        log.warn("mouseButtonCallback error: {}", .{err});
-                    };
+                // Check if click is in the tab bar area.
+                if (y >= 0 and y < Tab.TAB_BAR_HEIGHT and a.tabs.items.len > 0) {
+                    const tab_index = @divTrunc(@as(usize, @intCast(@max(x, 0))), @as(usize, @intCast(Tab.TAB_ITEM_WIDTH)));
+                    if (tab_index < a.tabs.items.len) {
+                        a.switchToTab(tab_index);
+
+                        // Start drag tracking.
+                        a.drag_active = true;
+                        a.drag_source_index = tab_index;
+                        a.drag_start_x = x;
+                        _ = SetCapture(hwnd);
+                    }
+                    return 0;
                 }
+
+                // Not in tab bar -- forward to active surface.
+                a.forwardMouseButton(msg, wparam, lparam);
+            }
+            return 0;
+        },
+        WM_LBUTTONUP => {
+            if (app) |a| {
+                if (a.drag_active) {
+                    a.drag_active = false;
+                    _ = ReleaseCapture();
+                    return 0;
+                }
+                a.forwardMouseButton(msg, wparam, lparam);
+            }
+            return 0;
+        },
+        WM_MBUTTONDOWN => {
+            if (app) |a| {
+                const x: i16 = @bitCast(@as(u16, @intCast(lparam & 0xFFFF)));
+                const y: i16 = @bitCast(@as(u16, @intCast((lparam >> 16) & 0xFFFF)));
+
+                // Middle-click in tab bar closes the tab.
+                if (y >= 0 and y < Tab.TAB_BAR_HEIGHT and a.tabs.items.len > 0) {
+                    const tab_index = @divTrunc(@as(usize, @intCast(@max(x, 0))), @as(usize, @intCast(Tab.TAB_ITEM_WIDTH)));
+                    if (tab_index < a.tabs.items.len) {
+                        a.closeTab(tab_index) catch |err| {
+                            log.err("closeTab error from middle-click: {}", .{err});
+                        };
+                    }
+                    return 0;
+                }
+
+                // Not in tab bar -- forward to active surface.
+                a.forwardMouseButton(msg, wparam, lparam);
+            }
+            return 0;
+        },
+        WM_RBUTTONDOWN, WM_RBUTTONUP, WM_MBUTTONUP => {
+            if (app) |a| {
+                a.forwardMouseButton(msg, wparam, lparam);
             }
             return 0;
         },
         WM_MOUSEMOVE => {
             if (app) |a| {
-                if (a.surface_initialized) {
+                // Handle tab drag reordering.
+                if (a.drag_active) {
+                    const x: i16 = @bitCast(@as(u16, @intCast(lparam & 0xFFFF)));
+                    const delta = @as(i32, x) - a.drag_start_x;
+                    if (@abs(delta) > 5) {
+                        const target_index = @divTrunc(@as(usize, @intCast(@max(x, 0))), @as(usize, @intCast(Tab.TAB_ITEM_WIDTH)));
+                        if (target_index < a.tabs.items.len and target_index != a.drag_source_index) {
+                            // Swap tabs.
+                            const tmp = a.tabs.items[a.drag_source_index];
+                            a.tabs.items[a.drag_source_index] = a.tabs.items[target_index];
+                            a.tabs.items[target_index] = tmp;
+
+                            // Update tab_index on surfaces.
+                            if (a.tabs.items[a.drag_source_index].surface_initialized) {
+                                a.tabs.items[a.drag_source_index].surface.tab_index = a.drag_source_index;
+                            }
+                            if (a.tabs.items[target_index].surface_initialized) {
+                                a.tabs.items[target_index].surface.tab_index = target_index;
+                            }
+
+                            // Update active tab and drag source.
+                            if (a.active_tab == a.drag_source_index) {
+                                a.active_tab = target_index;
+                            } else if (a.active_tab == target_index) {
+                                a.active_tab = a.drag_source_index;
+                            }
+                            a.drag_source_index = target_index;
+                            a.drag_start_x = x;
+                            a.redrawTabBar();
+                        }
+                    }
+                    return 0;
+                }
+
+                // Forward to active surface.
+                if (a.getActiveSurface()) |surface| {
                     const input_mod = @import("input.zig");
                     const x: i16 = @bitCast(@as(u16, @intCast(lparam & 0xFFFF)));
-                    const y: i16 = @bitCast(@as(u16, @intCast((lparam >> 16) & 0xFFFF)));
+                    const y_raw: i16 = @bitCast(@as(u16, @intCast((lparam >> 16) & 0xFFFF)));
+                    // Adjust Y for tab bar offset.
+                    const y = y_raw - @as(i16, @intCast(Tab.TAB_BAR_HEIGHT));
                     const pos = apprt.CursorPos{
                         .x = @floatFromInt(x),
                         .y = @floatFromInt(y),
                     };
                     const mods = input_mod.getModifiers();
-                    a.surface.core_surface.cursorPosCallback(pos, mods) catch |err| {
+                    surface.core_surface.cursorPosCallback(pos, mods) catch |err| {
                         log.warn("cursorPosCallback error: {}", .{err});
                     };
                 }
@@ -482,11 +769,10 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
         },
         WM_MOUSEWHEEL => {
             if (app) |a| {
-                if (a.surface_initialized) {
-                    // High word of wParam is the wheel delta (signed).
+                if (a.getActiveSurface()) |surface| {
                     const raw_delta: i16 = @bitCast(@as(u16, @intCast((wparam >> 16) & 0xFFFF)));
                     const delta: f64 = @as(f64, @floatFromInt(raw_delta)) / 120.0;
-                    a.surface.core_surface.scrollCallback(0, delta, .{}) catch |err| {
+                    surface.core_surface.scrollCallback(0, delta, .{}) catch |err| {
                         log.warn("scrollCallback error: {}", .{err});
                     };
                 }
@@ -495,8 +781,8 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
         },
         WM_SETFOCUS => {
             if (app) |a| {
-                if (a.surface_initialized) {
-                    a.surface.core_surface.focusCallback(true) catch |err| {
+                if (a.getActiveSurface()) |surface| {
+                    surface.core_surface.focusCallback(true) catch |err| {
                         log.warn("focusCallback error: {}", .{err});
                     };
                 }
@@ -505,8 +791,8 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
         },
         WM_KILLFOCUS => {
             if (app) |a| {
-                if (a.surface_initialized) {
-                    a.surface.core_surface.focusCallback(false) catch |err| {
+                if (a.getActiveSurface()) |surface| {
+                    surface.core_surface.focusCallback(false) catch |err| {
                         log.warn("focusCallback error: {}", .{err});
                     };
                 }
@@ -514,10 +800,125 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
             return 0;
         },
         WM_APP_WAKEUP => {
-            // No-op: just wakes up GetMessageW so we can tick the core.
             return 0;
         },
         else => return DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+/// Forward a mouse button message to the active surface.
+fn forwardMouseButton(self: *App, msg: u32, wparam: WPARAM, lparam: LPARAM) void {
+    _ = wparam;
+    if (self.getActiveSurface()) |surface| {
+        const input_mod = @import("input.zig");
+        const input_types = @import("../../input.zig");
+        const button: input_types.MouseButton = switch (msg) {
+            WM_LBUTTONDOWN, WM_LBUTTONUP => .left,
+            WM_RBUTTONDOWN, WM_RBUTTONUP => .right,
+            WM_MBUTTONDOWN, WM_MBUTTONUP => .middle,
+            else => return,
+        };
+        const action: input_types.MouseButtonState = switch (msg) {
+            WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN => .press,
+            WM_LBUTTONUP, WM_RBUTTONUP, WM_MBUTTONUP => .release,
+            else => return,
+        };
+        const mods = input_mod.getModifiers();
+
+        const x: i16 = @bitCast(@as(u16, @intCast(lparam & 0xFFFF)));
+        const y_raw: i16 = @bitCast(@as(u16, @intCast((lparam >> 16) & 0xFFFF)));
+        // Adjust Y for tab bar offset.
+        const y = y_raw - @as(i16, @intCast(Tab.TAB_BAR_HEIGHT));
+        const pos = apprt.CursorPos{
+            .x = @floatFromInt(x),
+            .y = @floatFromInt(y),
+        };
+        surface.core_surface.cursorPosCallback(pos, null) catch |err| {
+            log.warn("cursorPosCallback error in mouse button: {}", .{err});
+        };
+        _ = surface.core_surface.mouseButtonCallback(action, button, mods) catch |err| {
+            log.warn("mouseButtonCallback error: {}", .{err});
+        };
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tab bar painting
+// ---------------------------------------------------------------------------
+
+fn paintTabBar(self: *App, hwnd: HWND) void {
+    var ps: PAINTSTRUCT = std.mem.zeroes(PAINTSTRUCT);
+    const hdc = BeginPaint(hwnd, &ps) orelse return;
+    defer _ = EndPaint(hwnd, &ps);
+
+    // Only paint if the paint rect intersects the tab bar.
+    if (ps.rcPaint.bottom <= 0) return;
+
+    // Background for the tab bar area.
+    const is_dark = detectSystemThemeIsDark();
+    const bg_color: u32 = if (is_dark) 0x00302020 else 0x00F0F0F0;
+    const active_color: u32 = if (is_dark) 0x00504040 else 0x00FFFFFF;
+    const text_color: u32 = if (is_dark) 0x00FFFFFF else 0x00000000;
+
+    var client_rect: RECT = std.mem.zeroes(RECT);
+    _ = GetClientRect(hwnd, &client_rect);
+
+    // Fill tab bar background.
+    const bar_rect = RECT{
+        .left = 0,
+        .top = 0,
+        .right = client_rect.right,
+        .bottom = Tab.TAB_BAR_HEIGHT,
+    };
+    if (CreateSolidBrush(bg_color)) |bg_brush| {
+        _ = FillRect(hdc, &bar_rect, bg_brush);
+        _ = DeleteObject(@ptrCast(bg_brush));
+    }
+
+    _ = SetBkMode(hdc, TRANSPARENT);
+    _ = SetTextColor(hdc, text_color);
+
+    // Draw each tab item.
+    for (self.tabs.items, 0..) |*tab, i| {
+        const tab_left: i32 = @intCast(i * @as(usize, @intCast(Tab.TAB_ITEM_WIDTH)));
+        const tab_right: i32 = tab_left + Tab.TAB_ITEM_WIDTH;
+
+        const tab_rect = RECT{
+            .left = tab_left,
+            .top = 0,
+            .right = tab_right,
+            .bottom = Tab.TAB_BAR_HEIGHT,
+        };
+
+        // Draw tab background.
+        if (i == self.active_tab) {
+            if (CreateSolidBrush(active_color)) |active_brush| {
+                _ = FillRect(hdc, &tab_rect, active_brush);
+                _ = DeleteObject(@ptrCast(active_brush));
+            }
+        }
+
+        // Draw tab color indicator if set.
+        if (tab.color) |color| {
+            const color_rect = RECT{
+                .left = tab_left,
+                .top = Tab.TAB_BAR_HEIGHT - 3,
+                .right = tab_right,
+                .bottom = Tab.TAB_BAR_HEIGHT,
+            };
+            if (CreateSolidBrush(color)) |color_brush| {
+                _ = FillRect(hdc, &color_rect, color_brush);
+                _ = DeleteObject(@ptrCast(color_brush));
+            }
+        }
+
+        // Draw tab title.
+        const title = tab.getTitle();
+        var title_buf: [64]u16 = undefined;
+        const title_len = std.unicode.utf8ToUtf16Le(&title_buf, title) catch 0;
+        if (title_len > 0) {
+            _ = TextOutW(hdc, tab_left + 8, 6, &title_buf, @intCast(@min(title_len, 64)));
+        }
     }
 }
 
@@ -533,6 +934,7 @@ fn strEqlW(a: [*:0]const u16, b: [*:0]const u16) bool {
 /// Snap a resize rect to cell boundaries for cell-snapped resize.
 fn snapResizeRect(self: *App, rect: *RECT, direction: usize) void {
     const hwnd = self.hwnd orelse return;
+    const surface = self.getActiveSurface() orelse return;
 
     // Compute non-client area overhead using DPI-aware calculation.
     const dpi = GetDpiForWindow(hwnd);
@@ -542,14 +944,14 @@ fn snapResizeRect(self: *App, rect: *RECT, direction: usize) void {
     const nc_height = (nc_rect.bottom - nc_rect.top);
 
     // Get cell dimensions from the core surface's size info.
-    const cell_width = self.surface.core_surface.size.cell.width;
-    const cell_height = self.surface.core_surface.size.cell.height;
+    const cell_width = surface.core_surface.size.cell.width;
+    const cell_height = surface.core_surface.size.cell.height;
 
     if (cell_width == 0 or cell_height == 0) return;
 
-    // Compute desired client dimensions.
+    // Compute desired client dimensions (account for tab bar height).
     const desired_client_w = (rect.right - rect.left) - nc_width;
-    const desired_client_h = (rect.bottom - rect.top) - nc_height;
+    const desired_client_h = (rect.bottom - rect.top) - nc_height - Tab.TAB_BAR_HEIGHT;
 
     // Snap to cell grid.
     const snapped_w = @divTrunc(desired_client_w, @as(LONG, @intCast(cell_width))) * @as(LONG, @intCast(cell_width));
@@ -557,7 +959,7 @@ fn snapResizeRect(self: *App, rect: *RECT, direction: usize) void {
 
     // Apply snapped dimensions back to rect based on drag direction.
     const final_w = snapped_w + nc_width;
-    const final_h = snapped_h + nc_height;
+    const final_h = snapped_h + nc_height + Tab.TAB_BAR_HEIGHT;
 
     switch (direction) {
         WMSZ_LEFT, WMSZ_TOPLEFT, WMSZ_BOTTOMLEFT => {
@@ -592,18 +994,15 @@ fn toggleFullscreen(self: *App) void {
     const hwnd = self.hwnd orelse return;
 
     if (!self.is_fullscreen) {
-        // Save current window style and placement.
         self.saved_style = @as(LONG, @truncate(GetWindowLongPtrW(hwnd, GWL_STYLE)));
         self.saved_placement.length = @sizeOf(WINDOWPLACEMENT);
         _ = GetWindowPlacement(hwnd, &self.saved_placement);
 
-        // Get the monitor rect for the current monitor.
         const monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) orelse return;
         var mi: MONITORINFO = .{};
         mi.cbSize = @sizeOf(MONITORINFO);
         if (GetMonitorInfoW(monitor, &mi) == 0) return;
 
-        // Set borderless style and fill the monitor.
         _ = SetWindowLongPtrW(hwnd, GWL_STYLE, @as(LONG_PTR, @intCast(WS_POPUP | WS_VISIBLE)));
         _ = SetWindowPos(
             hwnd,
@@ -617,7 +1016,6 @@ fn toggleFullscreen(self: *App) void {
 
         self.is_fullscreen = true;
     } else {
-        // Restore saved style and placement.
         _ = SetWindowLongPtrW(hwnd, GWL_STYLE, @as(LONG_PTR, @intCast(self.saved_style)));
         _ = SetWindowPlacement(hwnd, &self.saved_placement);
         _ = SetWindowPos(hwnd, null, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
@@ -630,31 +1028,38 @@ fn toggleFullscreen(self: *App) void {
 // Theme detection and titlebar
 // ---------------------------------------------------------------------------
 
-/// Detect whether the system is using a dark theme by reading the registry.
 fn detectSystemThemeIsDark() bool {
     const subkey = comptime std.unicode.utf8ToUtf16LeStringLiteral("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
     const value_name = comptime std.unicode.utf8ToUtf16LeStringLiteral("AppsUseLightTheme");
 
     var hkey: usize = 0;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, subkey, 0, KEY_READ, &hkey) != 0) {
-        // Default to dark if we can't read the registry.
         return true;
     }
     defer _ = RegCloseKey(hkey);
 
-    var data: u32 = 1; // default to light (1)
+    var data: u32 = 1;
     var data_size: u32 = @sizeOf(u32);
     _ = RegQueryValueExW(hkey, value_name, null, null, @ptrCast(&data), &data_size);
 
-    // AppsUseLightTheme: 0 = dark, 1 = light
     return data == 0;
 }
 
-/// Apply dark or light titlebar to the window via DwmSetWindowAttribute.
 fn applyThemeToTitlebar(hwnd: HWND, is_dark: bool) void {
     const value: i32 = if (is_dark) 1 else 0;
     _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, @ptrCast(&value), @sizeOf(i32));
 }
+
+// ---------------------------------------------------------------------------
+// Win32 helper (ScreenToClient)
+// ---------------------------------------------------------------------------
+
+const POINT = extern struct {
+    x: LONG,
+    y: LONG,
+};
+
+extern "user32" fn ScreenToClient(hwnd: HWND, lpPoint: *POINT) callconv(.c) BOOL;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -683,18 +1088,99 @@ pub fn performAction(
     value: apprt.Action.Value(action),
 ) !bool {
     switch (action) {
-        .set_title => {
-            if (self.hwnd) |hwnd| {
-                // Convert UTF-8 title to UTF-16 for SetWindowTextW.
-                const title_str: [:0]const u8 = value.title;
-                var buf: [512]u16 = undefined;
-                const len = std.unicode.utf8ToUtf16Le(&buf, title_str) catch 0;
-                if (len < buf.len) {
-                    buf[len] = 0;
-                    const ptr: LPCWSTR = @ptrCast(&buf);
-                    _ = SetWindowTextW(hwnd, ptr);
+        .new_tab => {
+            _ = target;
+            try self.createTab();
+            return true;
+        },
+        .close_tab => {
+            _ = target;
+            switch (value) {
+                .this => {
+                    try self.closeTab(self.active_tab);
+                },
+                .other => {
+                    // Close all tabs except the active one.
+                    var i: usize = self.tabs.items.len;
+                    while (i > 0) {
+                        i -= 1;
+                        if (i != self.active_tab) {
+                            try self.closeTab(i);
+                        }
+                    }
+                },
+                .right => {
+                    // Close all tabs to the right.
+                    var i: usize = self.tabs.items.len;
+                    while (i > self.active_tab + 1) {
+                        i -= 1;
+                        try self.closeTab(i);
+                    }
+                },
+            }
+            return true;
+        },
+        .goto_tab => {
+            _ = target;
+            const tab_count = self.tabs.items.len;
+            if (tab_count == 0) return true;
+            const idx: usize = switch (value) {
+                .previous => if (self.active_tab == 0) tab_count - 1 else self.active_tab - 1,
+                .next => if (self.active_tab >= tab_count - 1) 0 else self.active_tab + 1,
+                .last => tab_count - 1,
+                _ => b: {
+                    const raw: c_int = @intFromEnum(value);
+                    if (raw < 0) break :b self.active_tab;
+                    const u: usize = @intCast(raw);
+                    break :b if (u < tab_count) u else self.active_tab;
+                },
+            };
+            self.switchToTab(idx);
+            return true;
+        },
+        .move_tab => {
+            _ = target;
+            const tab_count = self.tabs.items.len;
+            if (tab_count <= 1) return true;
+            const amount = value.amount;
+            const current: isize = @intCast(self.active_tab);
+            const count: isize = @intCast(tab_count);
+            const new_idx: usize = @intCast(@mod(current + amount, count));
+            if (new_idx != self.active_tab) {
+                // Swap tabs.
+                const tmp = self.tabs.items[self.active_tab];
+                self.tabs.items[self.active_tab] = self.tabs.items[new_idx];
+                self.tabs.items[new_idx] = tmp;
+                // Update tab_index on surfaces.
+                if (self.tabs.items[self.active_tab].surface_initialized) {
+                    self.tabs.items[self.active_tab].surface.tab_index = self.active_tab;
                 }
-                self.surface.title = title_str;
+                if (self.tabs.items[new_idx].surface_initialized) {
+                    self.tabs.items[new_idx].surface.tab_index = new_idx;
+                }
+                self.active_tab = new_idx;
+                self.redrawTabBar();
+            }
+            return true;
+        },
+        .set_title => {
+            if (self.tabs.items.len > 0 and self.active_tab < self.tabs.items.len) {
+                const tab = &self.tabs.items[self.active_tab];
+                if (tab.surface_initialized) {
+                    tab.surface.title = value.title;
+                }
+                // Update window title.
+                if (self.hwnd) |hwnd| {
+                    const title_str: [:0]const u8 = value.title;
+                    var buf: [512]u16 = undefined;
+                    const len = std.unicode.utf8ToUtf16Le(&buf, title_str) catch 0;
+                    if (len < buf.len) {
+                        buf[len] = 0;
+                        const ptr: LPCWSTR = @ptrCast(&buf);
+                        _ = SetWindowTextW(hwnd, ptr);
+                    }
+                }
+                self.redrawTabBar();
             }
             return true;
         },
@@ -713,23 +1199,17 @@ pub fn performAction(
             return true;
         },
         .toggle_fullscreen => {
-            // Fullscreen mode enum (native, macos variants) -- we always use native on Windows.
             self.toggleFullscreen();
             return true;
         },
         .reload_config => {
             const opts = value;
             if (opts.soft) {
-                // Soft reload: re-apply existing config with new conditional state.
                 try self.core_app.updateConfig(self, self.config);
             } else {
-                // Hard reload: load config from disk and propagate.
-                // Replace the owned config so it lives as long as the app.
                 var new_config = try CoreConfig.load(self.alloc);
                 errdefer new_config.deinit();
                 try self.core_app.updateConfig(self, &new_config);
-
-                // Swap: deinit old config, store new one.
                 if (self.owned_config) |*old| old.deinit();
                 self.owned_config = new_config;
                 self.config = &self.owned_config.?;
@@ -737,7 +1217,6 @@ pub fn performAction(
             return true;
         },
         .config_change => {
-            // Config has changed -- re-apply window-level settings.
             const new_config = value.config;
             self.config = new_config;
             if (self.hwnd) |hwnd| {
@@ -747,11 +1226,9 @@ pub fn performAction(
         },
         .new_window => {
             _ = target;
-            if (!self.surface_initialized) {
-                // Load config from disk and create the initial surface.
-                const config = try CoreConfig.load(self.alloc);
-                self.owned_config = config;
-                try self.initSurface(&self.owned_config.?);
+            // new_window creates the first tab.
+            if (self.tabs.items.len == 0) {
+                try self.createTab();
             }
             return true;
         },

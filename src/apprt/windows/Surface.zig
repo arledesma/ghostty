@@ -90,6 +90,9 @@ height: u32,
 /// Current window title set by the terminal via set_title.
 title: ?[:0]const u8,
 
+/// Index of the tab this surface belongs to.
+tab_index: usize,
+
 // ---------------------------------------------------------------------------
 // Accessors
 // ---------------------------------------------------------------------------
@@ -109,8 +112,10 @@ pub fn rtApp(self: *const Surface) *App {
 // ---------------------------------------------------------------------------
 
 /// Initialize a surface: create WGL context on the HWND, then init the core surface.
-pub fn init(self: *Surface, app: *App, config: *const configpkg.Config, core_app: *CoreApp) !void {
-    const hwnd = app.hwnd orelse return error.WinApiError;
+/// When called with a child_hwnd (from Tab), the surface renders into that child window.
+/// When called without (null), it falls back to app.hwnd for backwards compatibility.
+pub fn init(self: *Surface, app: *App, config: *const configpkg.Config, core_app: *CoreApp, child_hwnd: ?HWND) !void {
+    const hwnd = child_hwnd orelse app.hwnd orelse return error.WinApiError;
 
     // Initialize WGL context on the HWND.
     const ctx = try wgl.initContext(hwnd);
@@ -132,6 +137,7 @@ pub fn init(self: *Surface, app: *App, config: *const configpkg.Config, core_app
         .width = w,
         .height = h,
         .title = null,
+        .tab_index = 0,
     };
 
     // Initialize the core surface (PTY, terminal, renderer thread, etc.).
@@ -222,10 +228,12 @@ pub fn getTitle(self: *Surface) ?[:0]const u8 {
     return self.title;
 }
 
-/// Close the surface. For Phase 2, no confirmation dialog.
+/// Close the surface by requesting the App to close the containing tab.
 pub fn close(self: *Surface, process_active: bool) void {
     _ = process_active;
-    _ = DestroyWindow(self.hwnd);
+    self.app.closeTab(self.tab_index) catch |err| {
+        log.err("closeTab error from surface close: {}", .{err});
+    };
 }
 
 /// Return the default termio environment. ConPTY inherits
