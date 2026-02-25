@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = @import("../../quirks.zig").inlineAssert;
 const math = @import("../../math.zig");
+const apprt = @import("../../apprt.zig");
 
 const Pipeline = @import("Pipeline.zig");
 
@@ -338,14 +339,26 @@ fn initPostPipeline(data: [:0]const u8) !Pipeline {
     });
 }
 
+/// GLSL version header, selected at compile time based on the app runtime.
+/// Desktop GL gets #version 430 core; GLES (ANGLE on Windows) gets #version 310 es.
+const glsl_version_header: [:0]const u8 = if (apprt.runtime == apprt.windows)
+    "#version 310 es\n"
+else
+    "#version 430 core\n";
+
 /// Load shader code from the target path, processing `#include` directives.
+///
+/// Prepends the appropriate GLSL version header (#version 430 core for
+/// desktop GL, #version 310 es for GLES/ANGLE). The shader source files
+/// themselves do NOT contain #version directives.
 ///
 /// Comptime only for now, this code is really sloppy and makes a bunch of
 /// assumptions about things being well formed and file names not containing
 /// quote marks. If we ever want to process `#include`s for custom shaders
 /// then we need to write something better than this for it.
 fn loadShaderCode(comptime path: []const u8) [:0]const u8 {
-    return comptime processIncludes(@embedFile(path), std.fs.path.dirname(path).?);
+    return comptime glsl_version_header ++
+        processIncludes(@embedFile(path), std.fs.path.dirname(path).?);
 }
 
 /// Used by loadShaderCode

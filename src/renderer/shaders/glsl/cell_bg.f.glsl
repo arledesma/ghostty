@@ -1,7 +1,11 @@
 #include "common.glsl"
 
-// Position the origin to the upper left
+// Position the origin to the upper left.
+// GLES 3.1 does not support layout(origin_upper_left), so we
+// manually flip Y using screen_size from the Globals uniform block.
+#ifndef GL_ES
 layout(origin_upper_left) in vec4 gl_FragCoord;
+#endif
 
 // Must declare this output for some versions of OpenGL.
 layout(location = 0) out vec4 out_FragColor;
@@ -12,8 +16,16 @@ layout(binding = 1, std430) readonly buffer bg_cells {
 
 vec4 cell_bg() {
     uvec2 grid_size = unpack2u16(grid_size_packed_2u16);
-    ivec2 grid_pos = ivec2(floor((gl_FragCoord.xy - grid_padding.wx) / cell_size));
     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
+
+#ifdef GL_ES
+    // Manual Y-flip: GLES gl_FragCoord has origin at bottom-left.
+    vec2 frag_coord = vec2(gl_FragCoord.x, screen_size.y - gl_FragCoord.y);
+#else
+    vec2 frag_coord = gl_FragCoord.xy;
+#endif
+
+    ivec2 grid_pos = ivec2(floor((frag_coord - grid_padding.wx) / cell_size));
 
     vec4 bg = vec4(0.0);
 

@@ -2,7 +2,11 @@
 
 // Position the FragCoord origin to the upper left
 // so as to align with our texture's directionality.
+// GLES 3.1 does not support layout(origin_upper_left), so we
+// manually flip Y using screen_size from the Globals uniform block.
+#ifndef GL_ES
 layout(origin_upper_left) in vec4 gl_FragCoord;
+#endif
 
 layout(binding = 0) uniform sampler2D image;
 
@@ -17,11 +21,18 @@ layout(location = 0) out vec4 out_FragColor;
 void main() {
     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
 
+#ifdef GL_ES
+    // Manual Y-flip: GLES gl_FragCoord has origin at bottom-left.
+    vec2 frag_coord = vec2(gl_FragCoord.x, screen_size.y - gl_FragCoord.y);
+#else
+    vec2 frag_coord = gl_FragCoord.xy;
+#endif
+
     // Our texture coordinate is based on the screen position, offset by the
     // dest rect origin, and scaled by the ratio between the dest rect size
     // and the original texture size, which effectively scales the original
     // size of the texture to the dest rect size.
-    vec2 tex_coord = (gl_FragCoord.xy - offset) * scale;
+    vec2 tex_coord = (frag_coord - offset) * scale;
 
     vec2 tex_size = textureSize(image, 0);
 
