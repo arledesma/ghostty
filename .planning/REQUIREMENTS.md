@@ -9,8 +9,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Windowing Foundation
 
-- [ ] **WIN-01**: User sees a native WinUI 3 window hosting Ghostty's OpenGL renderer via ANGLE + SwapChainPanel
-- [ ] **WIN-02**: Window has native chrome (titlebar, min/max/close, resize handles, Win11 Snap Layouts)
+- [x] **WIN-01**: User sees a native WinUI 3 window hosting Ghostty's OpenGL renderer via ANGLE + SwapChainPanel
+- [x] **WIN-02**: Window has native chrome (titlebar, min/max/close, resize handles, Win11 Snap Layouts)
 - [ ] **WIN-03**: Terminal content scales correctly across monitors with different DPI settings
 - [ ] **WIN-04**: User can toggle fullscreen with F11 or configured keybind
 
@@ -26,7 +26,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Input & Clipboard
 
 - [ ] **INP-01**: User can copy/paste with Ctrl+Shift+C/V and OSC 52 clipboard protocol works
-- [ ] **INP-02**: All existing Ghostty keybindings work correctly in the native Windows apprt
+- [x] **INP-02**: All existing Ghostty keybindings work correctly in the native Windows apprt
 
 ### Terminal Features
 
@@ -99,8 +99,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WIN-01 | Phase 2 | Pending |
-| WIN-02 | Phase 2 | Pending |
+| WIN-01 | Phase 2 | Complete |
+| WIN-02 | Phase 2 | Complete |
 | WIN-03 | Phase 2 | Pending |
 | WIN-04 | Phase 2 | Pending |
 | TAB-01 | Phase 3 | Pending |
@@ -110,7 +110,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TAB-05 | Phase 3 | Pending |
 | TAB-06 | Phase 3 | Pending |
 | INP-01 | Phase 2 | Pending |
-| INP-02 | Phase 2 | Pending |
+| INP-02 | Phase 2 | Complete |
 | TERM-01 | Phase 3 | Pending |
 | TERM-02 | Phase 3 | Pending |
 | TERM-03 | Phase 3 | Pending |

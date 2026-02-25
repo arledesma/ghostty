@@ -45,11 +45,11 @@ Plans:
   3. User can copy/paste text with Ctrl+Shift+C/V and OSC 52 clipboard protocol works
   4. Terminal content renders correctly when dragged between monitors with different DPI settings (100%-250%)
   5. User can toggle fullscreen, and config changes in ghostty.conf apply without restart including light/dark theme following system setting
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: Window chrome, Surface wiring, and input translation
-- [ ] 02-02: Clipboard, DPI scaling, fullscreen, config hot-reload, and theming
+- [ ] 02-01-PLAN.md — Window chrome, core Surface wiring, and Win32 input translation
+- [ ] 02-02-PLAN.md — Clipboard, DPI scaling, fullscreen, config hot-reload, and theme following
 
 ### Phase 3: Tabs, Splits & Terminal Features
 **Goal**: Users can work with multiple terminals in tabs and splits with full search, scrollback, URL handling, and bell support
