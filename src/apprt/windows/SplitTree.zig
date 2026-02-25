@@ -230,7 +230,7 @@ pub fn focusDirection(node: *Node, current: *Surface, direction: anytype) ?*Surf
 /// Find the branch above the current surface that matches the resize direction,
 /// and adjust its ratio.
 pub fn resize(node: *Node, current: *Surface, direction: anytype, amount: u16) void {
-    resizeInner(node, current, direction, amount);
+    _ = resizeInner(node, current, direction, amount);
 }
 
 fn resizeInner(node: *Node, target: *Surface, direction: anytype, amount: u16) bool {

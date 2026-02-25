@@ -279,7 +279,7 @@ fn getContentRect(self: *Tab) RECT {
 extern "user32" fn GetClientRect(hwnd: HWND, lpRect: *RECT) callconv(.c) BOOL;
 
 /// Layout the zoomed surface to fill the entire tab content area.
-fn layoutZoomed(self: *Tab, surface: *Surface) void {
+pub fn layoutZoomed(self: *Tab, surface: *Surface) void {
     const rect = self.getContentRect();
     const w = rect.right - rect.left;
     const h = rect.bottom - rect.top;

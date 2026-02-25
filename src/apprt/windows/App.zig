@@ -217,6 +217,7 @@ extern "user32" fn GetMonitorInfoW(hMonitor: *anyopaque, lpmi: *MONITORINFO) cal
 extern "user32" fn InvalidateRect(hwnd: ?HWND, lpRect: ?*const RECT, bErase: BOOL) callconv(.c) BOOL;
 extern "user32" fn BeginPaint(hwnd: HWND, lpPaint: *PAINTSTRUCT) callconv(.c) ?HDC;
 extern "user32" fn EndPaint(hwnd: HWND, lpPaint: *const PAINTSTRUCT) callconv(.c) BOOL;
+extern "user32" fn SetFocus(hwnd: HWND) callconv(.c) ?HWND;
 extern "user32" fn SetCapture(hwnd: HWND) callconv(.c) ?HWND;
 extern "user32" fn ReleaseCapture() callconv(.c) BOOL;
 extern "user32" fn GetKeyState(nVirtKey: i32) callconv(.c) i16;
@@ -1269,6 +1270,82 @@ pub fn performAction(
             if (self.tabs.items.len == 0) {
                 try self.createTab();
             }
+            return true;
+        },
+        .new_split => {
+            _ = target;
+            const tab = self.getActiveTab() orelse return false;
+            const SplitTree = @import("SplitTree.zig");
+
+            // Map SplitDirection to SplitTree.Direction and whether new surface is first.
+            const direction: SplitTree.Direction = switch (value) {
+                .right, .left => .horizontal,
+                .down, .up => .vertical,
+            };
+            const new_first = switch (value) {
+                .left, .up => true,
+                .right, .down => false,
+            };
+
+            _ = try tab.splitSurface(self.alloc, direction, new_first, self.config, self.core_app, self);
+            return true;
+        },
+        .goto_split => {
+            _ = target;
+            const tab = self.getActiveTab() orelse return false;
+            const root = tab.root orelse return false;
+            const current = tab.focused_surface orelse return false;
+            const SplitTree = @import("SplitTree.zig");
+
+            if (SplitTree.focusDirection(root, current, value)) |next_surface| {
+                tab.focused_surface = next_surface;
+                _ = SetFocus(next_surface.hwnd);
+            }
+            return true;
+        },
+        .resize_split => {
+            _ = target;
+            const tab = self.getActiveTab() orelse return false;
+            const root = tab.root orelse return false;
+            const current = tab.focused_surface orelse return false;
+            const SplitTree = @import("SplitTree.zig");
+
+            SplitTree.resize(root, current, value.direction, value.amount);
+            tab.layoutSplits(root);
+            self.notifyActiveSurfaceSizes();
+            return true;
+        },
+        .equalize_splits => {
+            _ = target;
+            const tab = self.getActiveTab() orelse return false;
+            const root = tab.root orelse return false;
+            const SplitTree = @import("SplitTree.zig");
+
+            SplitTree.equalize(root);
+            tab.layoutSplits(root);
+            self.notifyActiveSurfaceSizes();
+            return true;
+        },
+        .toggle_split_zoom => {
+            _ = target;
+            const tab = self.getActiveTab() orelse return false;
+            const root = tab.root orelse return false;
+            const focused = tab.focused_surface orelse return false;
+            const SplitTree = @import("SplitTree.zig");
+
+            if (!tab.zoomed) {
+                // Zoom: hide all surfaces except the focused one, resize it to fill.
+                SplitTree.showAll(root, false);
+                _ = ShowWindow(focused.hwnd, SW_SHOW);
+                tab.layoutZoomed(focused);
+                tab.zoomed = true;
+            } else {
+                // Unzoom: show all surfaces and restore layout.
+                SplitTree.showAll(root, true);
+                tab.layoutSplits(root);
+                tab.zoomed = false;
+            }
+            self.notifyActiveSurfaceSizes();
             return true;
         },
         .color_change, .render => {
