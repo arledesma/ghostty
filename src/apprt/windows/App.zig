@@ -296,11 +296,21 @@ pub fn init(
     _ = opts;
 
     const alloc = core_app.alloc;
-    self.alloc = alloc;
-    self.core_app = core_app;
-    self.tabs = .{};
-    self.active_tab = 0;
-    self.drag_active = false;
+    self.* = .{
+        .alloc = alloc,
+        .core_app = core_app,
+        .tabs = .{},
+        .active_tab = 0,
+        .config = undefined,
+        .owned_config = null,
+        .hwnd = null,
+        .is_fullscreen = false,
+        .saved_style = 0,
+        .saved_placement = .{},
+        .drag_active = false,
+        .drag_source_index = 0,
+        .drag_start_x = 0,
+    };
 
     // Set per-monitor DPI awareness V2 before any window creation.
     _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -353,6 +363,11 @@ pub fn init(
         .cyBottomHeight = 0,
     };
     _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+
+    // Load config early so self.config is valid before ShowWindow, which
+    // can trigger WM_SETTINGCHANGE → reload_config before createTab runs.
+    self.owned_config = try CoreConfig.load(alloc);
+    self.config = &self.owned_config.?;
 
     // Apply initial titlebar theme based on system setting.
     applyThemeToTitlebar(hwnd, detectSystemThemeIsDark());
@@ -1266,6 +1281,9 @@ pub fn performAction(
         .reload_config => {
             const opts = value;
             if (opts.soft) {
+                // Skip soft reload if config hasn't been loaded yet (e.g.
+                // WM_SETTINGCHANGE arriving before the first createTab).
+                if (self.owned_config == null) return true;
                 try self.core_app.updateConfig(self, self.config);
             } else {
                 var new_config = try CoreConfig.load(self.alloc);
@@ -1278,8 +1296,17 @@ pub fn performAction(
             return true;
         },
         .config_change => {
+            // Clone the config into owned_config so we hold a stable pointer.
+            // The caller's config pointer may be to a temporary (e.g. the
+            // stack-local applied_ in App.updateConfig).
             const new_config = value.config;
-            self.config = new_config;
+            const cloned = new_config.clone(self.alloc) catch |err| {
+                log.err("failed to clone config in config_change: {}", .{err});
+                return false;
+            };
+            if (self.owned_config) |*old| old.deinit();
+            self.owned_config = cloned;
+            self.config = &self.owned_config.?;
             if (self.hwnd) |hwnd| {
                 applyThemeToTitlebar(hwnd, detectSystemThemeIsDark());
             }

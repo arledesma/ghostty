@@ -63,6 +63,8 @@ extern "user32" fn MoveWindow(hwnd: HWND, x: i32, y: i32, nWidth: i32, nHeight: 
 extern "user32" fn SetFocus(hwnd: HWND) callconv(.c) ?HWND;
 extern "user32" fn RegisterClassExW(lpWndClass: *const WNDCLASSEXW) callconv(.c) u16;
 extern "user32" fn DefWindowProcW(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LRESULT;
+extern "user32" fn GetParent(hwnd: HWND) callconv(.c) ?HWND;
+extern "user32" fn SendMessageW(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LRESULT;
 extern "user32" fn SetWindowLongPtrW(hwnd: HWND, nIndex: i32, dwNewLong: LONG_PTR) callconv(.c) LONG_PTR;
 extern "user32" fn GetWindowLongPtrW(hwnd: HWND, nIndex: i32) callconv(.c) LONG_PTR;
 extern "user32" fn BeginPaint(hwnd: HWND, lpPaint: *PAINTSTRUCT) callconv(.c) ?HDC;
@@ -86,6 +88,23 @@ const PAINTSTRUCT = extern struct {
 };
 
 const WM_PAINT: u32 = 0x000F;
+
+// Input messages that must be forwarded to the parent window because
+// WS_CHILD windows do not propagate them automatically.
+const WM_KEYDOWN: u32 = 0x0100;
+const WM_KEYUP: u32 = 0x0101;
+const WM_CHAR: u32 = 0x0102;
+const WM_SYSKEYDOWN: u32 = 0x0104;
+const WM_SYSKEYUP: u32 = 0x0105;
+const WM_SYSCHAR: u32 = 0x0106;
+const WM_MOUSEWHEEL: u32 = 0x020A;
+const WM_LBUTTONDOWN: u32 = 0x0201;
+const WM_LBUTTONUP: u32 = 0x0202;
+const WM_RBUTTONDOWN: u32 = 0x0204;
+const WM_RBUTTONUP: u32 = 0x0205;
+const WM_MBUTTONDOWN: u32 = 0x0207;
+const WM_MBUTTONUP: u32 = 0x0208;
+const WM_MOUSEMOVE: u32 = 0x0200;
 
 const WNDCLASSEXW = extern struct {
     cbSize: u32 = @sizeOf(WNDCLASSEXW),
@@ -421,18 +440,64 @@ pub fn getFirstSurface(self: *Tab) ?*Surface {
 // ---------------------------------------------------------------------------
 
 fn childWndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LRESULT {
-    if (msg == WM_PAINT) {
-        // Retrieve Tab pointer from GWLP_USERDATA.
-        const tab_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-        if (tab_ptr != 0) {
-            const tab: *Tab = @ptrFromInt(@as(usize, @intCast(tab_ptr)));
-            tab.paintScrollbars(hwnd);
-            return 0;
-        }
+    switch (msg) {
+        WM_PAINT => {
+            // Retrieve Tab pointer from GWLP_USERDATA.
+            const tab_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+            if (tab_ptr != 0) {
+                const tab: *Tab = @ptrFromInt(@as(usize, @intCast(tab_ptr)));
+                tab.paintScrollbars(hwnd);
+                return 0;
+            }
+        },
+
+        // Forward keyboard input to the parent window. WS_CHILD windows
+        // do NOT propagate these messages; DefWindowProcW discards them.
+        WM_KEYDOWN,
+        WM_KEYUP,
+        WM_CHAR,
+        WM_SYSKEYDOWN,
+        WM_SYSKEYUP,
+        WM_SYSCHAR,
+        => {
+            if (GetParent(hwnd)) |parent| {
+                return SendMessageW(parent, msg, wparam, lparam);
+            }
+        },
+
+        // Forward mouse input to the parent, translating coordinates from
+        // child-relative to parent-relative. The child HWND is positioned
+        // at y=TAB_BAR_HEIGHT within the parent, so add that offset.
+        WM_LBUTTONDOWN,
+        WM_LBUTTONUP,
+        WM_RBUTTONDOWN,
+        WM_RBUTTONUP,
+        WM_MBUTTONDOWN,
+        WM_MBUTTONUP,
+        WM_MOUSEMOVE,
+        => {
+            if (GetParent(hwnd)) |parent| {
+                const x: i16 = @bitCast(@as(u16, @intCast(lparam & 0xFFFF)));
+                const y: i16 = @bitCast(@as(u16, @intCast((lparam >> 16) & 0xFFFF)));
+                const adjusted_y = y + @as(i16, @intCast(TAB_BAR_HEIGHT));
+                const new_lparam: LPARAM = @as(LPARAM, @intCast(@as(u32, @bitCast([2]u16{
+                    @bitCast(x),
+                    @bitCast(adjusted_y),
+                }))));
+                return SendMessageW(parent, msg, wparam, new_lparam);
+            }
+        },
+
+        // WM_MOUSEWHEEL coordinates are screen-relative, not client-relative,
+        // so no translation is needed.
+        WM_MOUSEWHEEL => {
+            if (GetParent(hwnd)) |parent| {
+                return SendMessageW(parent, msg, wparam, lparam);
+            }
+        },
+
+        else => {},
     }
-    // The child HWND is a simple container. All input messages are forwarded
-    // to the parent by DefWindowProcW's default child handling, or handled
-    // by the parent's wndProc which routes to the active tab's surface.
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
