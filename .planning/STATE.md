@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 ## Current Position
 
 Phase: 3 of 4 (Tabs, Splits, Terminal Features)
-Plan: 3 of 4 in current phase
-Status: Executing Phase 3
-Last activity: 2026-02-25 -- Completed 03-02-PLAN.md
+Plan: 4 of 4 in current phase
+Status: Phase 3 execution complete, pending verification
+Last activity: 2026-02-25 -- Completed 03-03-PLAN.md
 
-Progress: [████████░░] 75%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
-- Average duration: 7min
-- Total execution time: 0.9 hours
+- Total plans completed: 8
+- Average duration: 6.6min
+- Total execution time: 0.95 hours
 
 **By Phase:**
 
@@ -29,11 +29,11 @@ Progress: [████████░░] 75%
 |-------|-------|--------|----------|
 | 1     | 3     | 27min  | 9min     |
 | 2     | 2     | 11min  | 5.5min   |
-| 3     | 3     | 22min  | 7.3min   |
+| 3     | 4     | 27min  | 6.75min  |
 
 **Recent Trend:**
 
-- Last 5 plans: 02-01 (5min), 02-02 (6min), 03-00 (5min), 03-01 (10min), 03-02 (7min)
+- Last 5 plans: 02-02 (6min), 03-00 (5min), 03-01 (10min), 03-02 (7min), 03-03 (5min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -79,6 +79,10 @@ Recent decisions affecting current work:
 - [03-02]: SplitTree operations as free functions on *Node, not struct methods
 - [03-02]: Tab.focused_surface tracks active split pane; Surface.close delegates to App.closeSurface
 - [03-02]: Split zoom hides sibling HWNDs via ShowWindow rather than detaching from tree
+- [03-03]: SearchOverlay as optional field on Surface rather than separate window class
+- [03-03]: Scrollbar as state fields (scroll_total/offset/view_len) with InvalidateRect repaint
+- [03-03]: ShellExecuteW for URL opening (handles protocol dispatch via OS)
+- [03-03]: MessageBeep(0xFFFFFFFF) + FlashWindow for audible + visual bell
 
 ### Pending Todos
 
@@ -92,5 +96,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 03-02-PLAN.md
+Stopped at: Completed 03-03-PLAN.md (all Phase 3 plans complete)
 Resume file: None
