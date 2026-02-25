@@ -176,10 +176,9 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         },
 
         apprt.windows => {
-            // Load GLES function pointers via ANGLE's eglGetProcAddress.
-            // ANGLE exposes GLES 3.1 functions through its EGL loader.
-            const angle = @import("../apprt/windows/angle.zig");
-            try prepareContext(&angle.eglGetProcAddress);
+            // Load GL function pointers via WGL.
+            const wgl = @import("../apprt/windows/wgl.zig");
+            try prepareContext(&wgl.getGlProcAddress);
         },
     }
 
@@ -221,7 +220,7 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
         },
 
         apprt.windows => {
-            // Make EGL context current on the renderer thread via ANGLE.
+            // Make WGL context current on the renderer thread.
             surface.threadEnter();
         },
     }
@@ -244,11 +243,9 @@ pub fn threadExit(self: *const OpenGL) void {
         },
 
         apprt.windows => {
-            // Release EGL context from the renderer thread.
-            // threadExit doesn't take surface, so we need a different approach.
-            // For now, this is a no-op; the context is released when the
-            // Surface is deinitialized. The renderer thread typically only
-            // exits once at shutdown.
+            // Release WGL context from the renderer thread.
+            const wgl = @import("../apprt/windows/wgl.zig");
+            wgl.releaseCurrent();
         },
     }
 }

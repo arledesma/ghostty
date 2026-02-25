@@ -339,18 +339,13 @@ fn initPostPipeline(data: [:0]const u8) !Pipeline {
     });
 }
 
-/// GLSL version header, selected at compile time based on the app runtime.
-/// Desktop GL gets #version 430 core; GLES (ANGLE on Windows) gets #version 310 es.
-const glsl_version_header: [:0]const u8 = if (apprt.runtime == apprt.windows)
-    "#version 310 es\n"
-else
-    "#version 430 core\n";
+/// GLSL version header. All platforms use desktop GL 4.3 core profile.
+const glsl_version_header: [:0]const u8 = "#version 430 core\n";
 
 /// Load shader code from the target path, processing `#include` directives.
 ///
-/// Prepends the appropriate GLSL version header (#version 430 core for
-/// desktop GL, #version 310 es for GLES/ANGLE). The shader source files
-/// themselves do NOT contain #version directives.
+/// Prepends the GLSL version header (#version 430 core). The shader source
+/// files themselves do NOT contain #version directives.
 ///
 /// Comptime only for now, this code is really sloppy and makes a bunch of
 /// assumptions about things being well formed and file names not containing

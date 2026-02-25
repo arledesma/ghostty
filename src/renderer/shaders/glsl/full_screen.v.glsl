@@ -1,7 +1,4 @@
 // NOTE: Version header prepended at compile time by Zig shader loader.
-#ifdef GL_ES
-precision highp float;
-#endif
 
 void main() {
   vec4 position;

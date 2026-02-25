@@ -1,52 +1,87 @@
-/// Windows apprt backend (WinUI 3 via COM/WinRT).
+/// Windows apprt backend (Win32 HWND + WGL OpenGL).
 ///
-/// Creates a WinUI 3 Window with a SwapChainPanel as content,
-/// initializes ANGLE EGL rendering, and runs a basic message loop
-/// that presents frames via eglSwapBuffers.
+/// Creates a native Win32 window, initializes a WGL OpenGL 4.3 core profile
+/// context via Surface, and runs a message loop that presents frames.
 const App = @This();
 
 const std = @import("std");
 const apprt = @import("../../apprt.zig");
 const CoreApp = @import("../../App.zig");
 const com = @import("com.zig");
-const winui = @import("winui.zig");
+const wgl = @import("wgl.zig");
 const Surface = @import("Surface.zig");
-const angle = @import("angle.zig");
 
 const log = std.log.scoped(.windows);
 
 // ---------------------------------------------------------------------------
-// Win32 message loop types and functions
+// Win32 types and constants
 // ---------------------------------------------------------------------------
 
+const HWND = wgl.HWND;
+const LRESULT = isize;
+const WPARAM = usize;
+const LPARAM = isize;
+const HINSTANCE = std.os.windows.HINSTANCE;
+const LPCWSTR = [*:0]const u16;
+const BOOL = std.os.windows.BOOL;
+const DWORD = std.os.windows.DWORD;
+
 const MSG = extern struct {
-    hwnd: ?*anyopaque,
+    hwnd: ?HWND,
     message: u32,
-    w_param: usize,
-    l_param: isize,
+    w_param: WPARAM,
+    l_param: LPARAM,
     time: u32,
     pt: extern struct { x: i32, y: i32 },
 };
 
 const PM_REMOVE: u32 = 0x0001;
 const WM_QUIT: u32 = 0x0012;
+const WM_CLOSE: u32 = 0x0010;
+const WM_DESTROY: u32 = 0x0002;
+const CS_OWNDC: u32 = 0x0020;
+const CS_HREDRAW: u32 = 0x0002;
+const CS_VREDRAW: u32 = 0x0001;
+const WS_OVERLAPPEDWINDOW: u32 = 0x00CF0000;
+const CW_USEDEFAULT: i32 = @bitCast(@as(u32, 0x80000000));
+const SW_SHOW: i32 = 5;
+const IDC_ARROW: usize = 32512;
 
-extern "user32" fn PeekMessageW(
-    msg: *MSG,
-    hwnd: ?*anyopaque,
-    filter_min: u32,
-    filter_max: u32,
-    remove_msg: u32,
-) callconv(.c) i32;
+// ---------------------------------------------------------------------------
+// Win32 function imports
+// ---------------------------------------------------------------------------
 
-extern "user32" fn TranslateMessage(msg: *const MSG) callconv(.c) i32;
-extern "user32" fn DispatchMessageW(msg: *const MSG) callconv(.c) isize;
+extern "user32" fn PeekMessageW(msg: *MSG, hwnd: ?HWND, filter_min: u32, filter_max: u32, remove_msg: u32) callconv(.c) BOOL;
+extern "user32" fn TranslateMessage(msg: *const MSG) callconv(.c) BOOL;
+extern "user32" fn DispatchMessageW(msg: *const MSG) callconv(.c) LRESULT;
+extern "user32" fn RegisterClassExW(lpWndClass: *const wgl.WNDCLASSEXW) callconv(.c) u16;
+extern "user32" fn CreateWindowExW(
+    dwExStyle: DWORD,
+    lpClassName: LPCWSTR,
+    lpWindowName: ?LPCWSTR,
+    dwStyle: DWORD,
+    x: i32,
+    y: i32,
+    nWidth: i32,
+    nHeight: i32,
+    hWndParent: ?HWND,
+    hMenu: ?*anyopaque,
+    hInstance: ?HINSTANCE,
+    lpParam: ?*anyopaque,
+) callconv(.c) ?HWND;
+extern "user32" fn ShowWindow(hwnd: HWND, nCmdShow: i32) callconv(.c) BOOL;
+extern "user32" fn DestroyWindow(hwnd: HWND) callconv(.c) BOOL;
+extern "user32" fn PostQuitMessage(nExitCode: i32) callconv(.c) void;
+extern "user32" fn DefWindowProcW(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LRESULT;
+extern "user32" fn LoadCursorW(hInstance: ?HINSTANCE, lpCursorName: usize) callconv(.c) ?*anyopaque;
+extern "kernel32" fn GetModuleHandleW(lpModuleName: ?LPCWSTR) callconv(.c) ?HINSTANCE;
 
 // ---------------------------------------------------------------------------
 // App state
 // ---------------------------------------------------------------------------
 
 surface: ?Surface = null,
+hwnd: ?HWND = null,
 
 pub fn init(
     self: *App,
@@ -56,54 +91,67 @@ pub fn init(
     _ = core_app;
     _ = opts;
 
-    // Initialize the COM/WinRT runtime.
+    // Initialize COM runtime (needed for DirectWrite font discovery).
     try com.roInitialize();
-    log.info("Windows apprt initialized (COM/WinRT ready)", .{});
+    log.info("Windows apprt initialized (COM ready)", .{});
 
-    // Create the rendering surface (SwapChainPanel + EGL).
-    self.surface = Surface.init() catch |err| {
+    const hinstance = GetModuleHandleW(null);
+
+    // Register window class with CS_OWNDC for persistent DC.
+    const class_name = comptime std.unicode.utf8ToUtf16LeStringLiteral("GhosttyWindow");
+    const wc = wgl.WNDCLASSEXW{
+        .style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW,
+        .lpfnWndProc = wndProc,
+        .hInstance = hinstance,
+        .hCursor = LoadCursorW(null, IDC_ARROW),
+        .lpszClassName = class_name,
+    };
+    _ = RegisterClassExW(&wc);
+
+    const window_title = comptime std.unicode.utf8ToUtf16LeStringLiteral("Ghostty");
+    const hwnd = CreateWindowExW(
+        0,
+        class_name,
+        window_title,
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        800,
+        600,
+        null,
+        null,
+        hinstance,
+        null,
+    ) orelse {
+        log.err("CreateWindowExW failed", .{});
+        return error.WindowCreationFailed;
+    };
+    self.hwnd = hwnd;
+
+    // Create the rendering surface (WGL context on the HWND).
+    self.surface = Surface.init(hwnd) catch |err| {
         log.err("Failed to create rendering surface: {}", .{err});
         return err;
     };
+
+    _ = ShowWindow(hwnd, SW_SHOW);
+    log.info("Win32 window created and shown", .{});
 }
 
 pub fn terminate(self: *App) void {
     if (self.surface) |*s| s.deinit();
     self.surface = null;
+    if (self.hwnd) |hwnd| _ = DestroyWindow(hwnd);
+    self.hwnd = null;
     com.roUninitialize();
 }
 
 pub fn run(self: *App) !void {
     var surface = &(self.surface orelse return);
 
-    // Create a WinUI 3 Window and set the SwapChainPanel as its content.
-    const window = blk: {
-        var header: com.HSTRING_HEADER = undefined;
-        const hstr = try com.hstring(com.L("Microsoft.UI.Xaml.Window"), &header);
-        const inspectable = try com.activateInstance(hstr);
-        const w: *winui.IWindow = @ptrCast(@alignCast(inspectable));
-        break :blk w;
-    };
-
-    // Set SwapChainPanel as window content
-    const hr = window.vtable.put_Content(window, surface.panel_inspectable);
-    com.check(hr) catch |err| {
-        log.err("Failed to set window content: {}", .{err});
-        return err;
-    };
-
-    // Activate (show) the window
-    com.check(window.vtable.Activate(window)) catch |err| {
-        log.err("Failed to activate window: {}", .{err});
-        return err;
-    };
-
-    log.info("WinUI 3 window activated with SwapChainPanel content", .{});
-
-    // Make EGL context current for initial clear
+    // Make WGL context current for initial rendering.
     surface.threadEnter();
 
-    // Basic message loop
     var msg: MSG = std.mem.zeroes(MSG);
     var running = true;
 
@@ -118,12 +166,25 @@ pub fn run(self: *App) !void {
         }
 
         if (running) {
-            // Present a frame (initially just whatever the clear color is).
             surface.swapBuffers();
         }
     }
 
     surface.threadExit();
+}
+
+fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LRESULT {
+    switch (msg) {
+        WM_CLOSE => {
+            _ = DestroyWindow(hwnd);
+            return 0;
+        },
+        WM_DESTROY => {
+            PostQuitMessage(0);
+            return 0;
+        },
+        else => return DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
 }
 
 /// Called by CoreApp to wake up the event loop.

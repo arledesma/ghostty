@@ -2,19 +2,12 @@
 // line of any shader that needs these should be `#include "common.glsl"`.
 //
 // NOTE: The #version header is NOT in this file. It is prepended at
-// compile time by the Zig shader loader (loadShaderCode in shaders.zig),
-// which selects #version 430 core for desktop GL or #version 310 es
-// for GLES (ANGLE on Windows).
+// compile time by the Zig shader loader (loadShaderCode in shaders.zig).
 //
 // Included in this file are:
 // - The interface block for the global uniforms.
 // - Functions for unpacking values.
 // - Functions for working with colors.
-
-#ifdef GL_ES
-precision highp float;
-precision highp int;
-#endif
 
 //----------------------------------------------------------------------------//
 // Global Uniforms

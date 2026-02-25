@@ -1,13 +1,7 @@
 #include "common.glsl"
 
-#ifdef GL_ES
-// GLES 3.1 has no rectangle textures; use sampler2D with normalized coords.
-layout(binding = 0) uniform sampler2D atlas_grayscale;
-layout(binding = 1) uniform sampler2D atlas_color;
-#else
 layout(binding = 0) uniform sampler2DRect atlas_grayscale;
 layout(binding = 1) uniform sampler2DRect atlas_color;
-#endif
 
 in CellTextVertexOut {
     flat uint atlas;
@@ -26,12 +20,6 @@ layout(location = 0) out vec4 out_FragColor;
 void main() {
     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
     bool use_linear_correction = (bools & USE_LINEAR_CORRECTION) != 0;
-
-#ifdef GL_ES
-    // Normalize pixel coordinates to [0,1] for sampler2D on GLES.
-    vec2 grayscale_tex = in_data.tex_coord / vec2(textureSize(atlas_grayscale, 0));
-    vec2 color_tex = in_data.tex_coord / vec2(textureSize(atlas_color, 0));
-#endif
 
     switch (in_data.atlas) {
         default:
@@ -52,11 +40,7 @@ void main() {
             }
 
             // Fetch our alpha mask for this pixel.
-#ifdef GL_ES
-            float a = texture(atlas_grayscale, grayscale_tex).r;
-#else
             float a = texture(atlas_grayscale, in_data.tex_coord).r;
-#endif
 
             // Linear blending weight correction corrects the alpha value to
             // produce blending results which match gamma-incorrect blending.
@@ -95,11 +79,7 @@ void main() {
         {
             // For now, we assume that color glyphs
             // are already premultiplied linear colors.
-#ifdef GL_ES
-            vec4 color = texture(atlas_color, color_tex);
-#else
             vec4 color = texture(atlas_color, in_data.tex_coord);
-#endif
 
             // If we are doing linear blending, we can return this right away.
             if (use_linear_blending) {
