@@ -11,17 +11,17 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 
 Phase: 3 of 4 (Tabs, Splits, Terminal Features)
 Plan: 4 of 4 in current phase
-Status: Phase 3 execution complete, pending verification
-Last activity: 2026-02-25 -- Completed 03-03-PLAN.md
+Status: Phase 3 execution complete (including gap closure plan 04)
+Last activity: 2026-02-25 -- Completed 03-04-PLAN.md (gap closure)
 
 Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
-- Average duration: 6.6min
-- Total execution time: 0.95 hours
+- Total plans completed: 9
+- Average duration: 6.1min
+- Total execution time: 0.98 hours
 
 **By Phase:**
 
@@ -29,11 +29,11 @@ Progress: [██████████] 100%
 |-------|-------|--------|----------|
 | 1     | 3     | 27min  | 9min     |
 | 2     | 2     | 11min  | 5.5min   |
-| 3     | 4     | 27min  | 6.75min  |
+| 3     | 5     | 29min  | 5.8min   |
 
 **Recent Trend:**
 
-- Last 5 plans: 02-02 (6min), 03-00 (5min), 03-01 (10min), 03-02 (7min), 03-03 (5min)
+- Last 5 plans: 03-00 (5min), 03-01 (10min), 03-02 (7min), 03-03 (5min), 03-04 (2min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -83,6 +83,8 @@ Recent decisions affecting current work:
 - [03-03]: Scrollbar as state fields (scroll_total/offset/view_len) with InvalidateRect repaint
 - [03-03]: ShellExecuteW for URL opening (handles protocol dispatch via OS)
 - [03-03]: MessageBeep(0xFFFFFFFF) + FlashWindow for audible + visual bell
+- [03-04]: GDI FillRect scrollbar painting on existing child HWND via WM_PAINT handler
+- [03-04]: GWLP_USERDATA back-pointer from child HWND to Tab struct for WM_PAINT access
 
 ### Pending Todos
 
@@ -96,5 +98,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 03-03-PLAN.md (all Phase 3 plans complete)
+Stopped at: Completed 03-04-PLAN.md (gap closure, all Phase 3 plans complete)
 Resume file: None

@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation & Rendering Bridge** - COM bridge, ANGLE+SwapChainPanel proof-of-concept, DirectWrite font discovery, apprt scaffold (completed 2026-02-25)
 - [x] **Phase 2: Single Terminal Surface** - Working terminal in native WinUI 3 window with input, clipboard, DPI, fullscreen, config (completed 2026-02-25)
-- [ ] **Phase 3: Tabs, Splits & Terminal Features** - Multi-tab, split-pane interface with search, scrollbar, URL handling, bell
+- [x] **Phase 3: Tabs, Splits & Terminal Features** - Multi-tab, split-pane interface with search, scrollbar, URL handling, bell (completed 2026-02-25)
 - [ ] **Phase 4: Platform Integration & Distribution** - MSIX packaging, Quick Terminal, notifications, command palette
 
 ## Phase Details
@@ -94,5 +94,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Foundation & Rendering Bridge | 1/3 | Complete    | 2026-02-25 |
 | 2. Single Terminal Surface | 0/2 | Complete    | 2026-02-25 |
-| 3. Tabs, Splits & Terminal Features | 4/5 | In Progress | - |
+| 3. Tabs, Splits & Terminal Features | 5/5 | Complete   | 2026-02-25 |
 | 4. Platform Integration & Distribution | 0/2 | Not started | - |

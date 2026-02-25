@@ -31,7 +31,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Terminal Features
 
 - [ ] **TERM-01**: User can search scrollback buffer with Ctrl+Shift+F overlay
-- [ ] **TERM-02**: Window shows a visible scrollbar for scrollback navigation
+- [x] **TERM-02**: Window shows a visible scrollbar for scrollback navigation
 - [ ] **TERM-03**: User can Ctrl+click URLs to open them in the default browser
 - [ ] **TERM-04**: Terminal bell triggers audible/visual notification
 - [x] **TERM-05**: Configuration hot-reload works — changes to ghostty.conf apply without restart
@@ -112,7 +112,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INP-01 | Phase 2 | Complete |
 | INP-02 | Phase 2 | Complete |
 | TERM-01 | Phase 3 | Pending |
-| TERM-02 | Phase 3 | Pending |
+| TERM-02 | Phase 3 | Complete |
 | TERM-03 | Phase 3 | Pending |
 | TERM-04 | Phase 3 | Pending |
 | TERM-05 | Phase 2 | Complete |
