@@ -14,6 +14,7 @@ const CoreConfig = configpkg.Config;
 const com = @import("com.zig");
 const wgl = @import("wgl.zig");
 const Surface = @import("Surface.zig");
+const SearchOverlay = @import("SearchOverlay.zig");
 const Tab = @import("Tab.zig");
 
 const log = std.log.scoped(.windows);
@@ -247,6 +248,17 @@ extern "gdi32" fn GetStockObject(i: i32) callconv(.c) ?HGDIOBJ;
 extern "advapi32" fn RegOpenKeyExW(hKey: usize, lpSubKey: LPCWSTR, ulOptions: u32, samDesired: u32, phkResult: *usize) callconv(.c) i32;
 extern "advapi32" fn RegQueryValueExW(hKey: usize, lpValueName: LPCWSTR, lpReserved: ?*u32, lpType: ?*u32, lpData: ?[*]u8, lpcbData: *u32) callconv(.c) i32;
 extern "advapi32" fn RegCloseKey(hKey: usize) callconv(.c) i32;
+
+// Shell
+extern "shell32" fn ShellExecuteW(hwnd: ?HWND, lpOperation: ?LPCWSTR, lpFile: LPCWSTR, lpParameters: ?LPCWSTR, lpDirectory: ?LPCWSTR, nShowCmd: i32) callconv(.c) isize;
+
+// Bell and flash
+extern "user32" fn MessageBeep(uType: u32) callconv(.c) BOOL;
+extern "user32" fn FlashWindow(hwnd: HWND, bInvert: BOOL) callconv(.c) BOOL;
+
+// Cursor
+extern "user32" fn SetCursor(hCursor: ?*anyopaque) callconv(.c) ?*anyopaque;
+const IDC_HAND: usize = 32649;
 
 // ---------------------------------------------------------------------------
 // App state
@@ -524,6 +536,15 @@ fn getActiveSurface(self: *App) ?*Surface {
     if (self.tabs.items.len == 0) return null;
     if (self.active_tab >= self.tabs.items.len) return null;
     return self.tabs.items[self.active_tab].focused_surface;
+}
+
+/// Resolve an action target to a Surface. If the target is a specific surface,
+/// use it directly; otherwise fall back to the active tab's focused surface.
+fn getTargetSurface(self: *App, target: apprt.Target) ?*Surface {
+    return switch (target) {
+        .surface => |cs| cs.rt_surface,
+        .app => self.getActiveSurface(),
+    };
 }
 
 /// Get the active tab, if any.
@@ -1136,12 +1157,12 @@ pub fn performAction(
 ) !bool {
     switch (action) {
         .new_tab => {
-            _ = target;
+
             try self.createTab();
             return true;
         },
         .close_tab => {
-            _ = target;
+
             switch (value) {
                 .this => {
                     try self.closeTab(self.active_tab);
@@ -1168,7 +1189,7 @@ pub fn performAction(
             return true;
         },
         .goto_tab => {
-            _ = target;
+
             const tab_count = self.tabs.items.len;
             if (tab_count == 0) return true;
             const idx: usize = switch (value) {
@@ -1186,7 +1207,7 @@ pub fn performAction(
             return true;
         },
         .move_tab => {
-            _ = target;
+
             const tab_count = self.tabs.items.len;
             if (tab_count <= 1) return true;
             const amount = value.amount;
@@ -1265,7 +1286,7 @@ pub fn performAction(
             return true;
         },
         .new_window => {
-            _ = target;
+
             // new_window creates the first tab.
             if (self.tabs.items.len == 0) {
                 try self.createTab();
@@ -1273,7 +1294,7 @@ pub fn performAction(
             return true;
         },
         .new_split => {
-            _ = target;
+
             const tab = self.getActiveTab() orelse return false;
             const SplitTree = @import("SplitTree.zig");
 
@@ -1291,7 +1312,7 @@ pub fn performAction(
             return true;
         },
         .goto_split => {
-            _ = target;
+
             const tab = self.getActiveTab() orelse return false;
             const root = tab.root orelse return false;
             const current = tab.focused_surface orelse return false;
@@ -1304,7 +1325,7 @@ pub fn performAction(
             return true;
         },
         .resize_split => {
-            _ = target;
+
             const tab = self.getActiveTab() orelse return false;
             const root = tab.root orelse return false;
             const current = tab.focused_surface orelse return false;
@@ -1316,7 +1337,6 @@ pub fn performAction(
             return true;
         },
         .equalize_splits => {
-            _ = target;
             const tab = self.getActiveTab() orelse return false;
             const root = tab.root orelse return false;
             const SplitTree = @import("SplitTree.zig");
@@ -1327,7 +1347,6 @@ pub fn performAction(
             return true;
         },
         .toggle_split_zoom => {
-            _ = target;
             const tab = self.getActiveTab() orelse return false;
             const root = tab.root orelse return false;
             const focused = tab.focused_surface orelse return false;
@@ -1348,12 +1367,96 @@ pub fn performAction(
             self.notifyActiveSurfaceSizes();
             return true;
         },
+        .start_search => {
+            const surface = self.getTargetSurface(target) orelse return false;
+            // Create search overlay if it doesn't exist on this surface.
+            if (surface.search_overlay == null) {
+                surface.search_overlay = .{};
+                surface.search_overlay.?.init(surface) catch |err| {
+                    log.err("Failed to create search overlay: {}", .{err});
+                    surface.search_overlay = null;
+                    return false;
+                };
+            }
+            surface.search_overlay.?.show(value.needle);
+            return true;
+        },
+        .end_search => {
+            const surface = self.getTargetSurface(target) orelse return false;
+            if (surface.search_overlay) |*overlay| {
+                if (overlay.visible) {
+                    overlay.hide();
+                }
+            }
+            return true;
+        },
+        .search_total => {
+            const surface = self.getTargetSurface(target) orelse return false;
+            if (surface.search_overlay) |*overlay| {
+                overlay.setTotal(value.total);
+            }
+            return true;
+        },
+        .search_selected => {
+            const surface = self.getTargetSurface(target) orelse return false;
+            if (surface.search_overlay) |*overlay| {
+                overlay.setSelected(value.selected);
+            }
+            return true;
+        },
+        .scrollbar => {
+            const surface = self.getTargetSurface(target) orelse return false;
+            surface.scroll_total = value.total;
+            surface.scroll_offset = value.offset;
+            surface.scroll_view_len = value.len;
+            // Trigger a repaint on the surface's HWND for scrollbar painting.
+            _ = InvalidateRect(surface.hwnd, null, 0);
+            return true;
+        },
+        .open_url => {
+            const url = value.url;
+            if (url.len == 0) return true;
+
+            // Convert UTF-8 URL to null-terminated UTF-16.
+            var wide_buf: [2048]u16 = undefined;
+            const wide_len = std.unicode.utf8ToUtf16Le(&wide_buf, url) catch return false;
+            if (wide_len >= wide_buf.len) return false;
+            wide_buf[wide_len] = 0;
+            const url_wide: LPCWSTR = @ptrCast(&wide_buf);
+
+            _ = ShellExecuteW(null, null, url_wide, null, null, SW_SHOW);
+            return true;
+        },
+        .mouse_over_link => {
+            const surface = self.getTargetSurface(target) orelse return false;
+            if (value.url.len > 0) {
+                surface.hovering_link = true;
+                _ = SetCursor(LoadCursorW(null, IDC_HAND));
+            } else {
+                surface.hovering_link = false;
+                _ = SetCursor(LoadCursorW(null, IDC_ARROW));
+            }
+            return true;
+        },
+        .ring_bell => {
+            // Play system default beep.
+            _ = MessageBeep(0xFFFFFFFF);
+            // Optionally flash the taskbar icon for visual bell.
+            if (self.hwnd) |hwnd| {
+                _ = FlashWindow(hwnd, 1);
+            }
+            return true;
+        },
+        .cell_size => {
+            const surface = self.getTargetSurface(target) orelse return false;
+            surface.cell_width = value.width;
+            surface.cell_height = value.height;
+            return true;
+        },
         .color_change, .render => {
-            _ = target;
             return false;
         },
         else => {
-            _ = target;
             return false;
         },
     }

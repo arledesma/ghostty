@@ -15,6 +15,7 @@ const input = @import("../../input.zig");
 const CoreSurface = @import("../../Surface.zig");
 const CoreApp = @import("../../App.zig");
 const App = @import("App.zig");
+const SearchOverlay = @import("SearchOverlay.zig");
 const wgl = @import("wgl.zig");
 
 const log = std.log.scoped(.windows_surface);
@@ -90,6 +91,21 @@ height: u32,
 /// Current window title set by the terminal via set_title.
 title: ?[:0]const u8,
 
+/// Search overlay for this surface.
+search_overlay: ?SearchOverlay = null,
+
+/// Scrollbar state.
+scroll_total: usize = 0,
+scroll_offset: usize = 0,
+scroll_view_len: usize = 0,
+
+/// Whether this surface is currently hovering over a link.
+hovering_link: bool = false,
+
+/// Cell size in pixels (updated via cell_size action).
+cell_width: u32 = 0,
+cell_height: u32 = 0,
+
 // ---------------------------------------------------------------------------
 // Accessors
 // ---------------------------------------------------------------------------
@@ -134,6 +150,13 @@ pub fn init(self: *Surface, app: *App, config: *const configpkg.Config, core_app
         .width = w,
         .height = h,
         .title = null,
+        .search_overlay = null,
+        .scroll_total = 0,
+        .scroll_offset = 0,
+        .scroll_view_len = 0,
+        .hovering_link = false,
+        .cell_width = 0,
+        .cell_height = 0,
     };
 
     // Initialize the core surface (PTY, terminal, renderer thread, etc.).
@@ -160,6 +183,11 @@ pub fn init(self: *Surface, app: *App, config: *const configpkg.Config, core_app
 
 /// Destroy the surface: deinit core surface, release WGL context.
 pub fn deinit(self: *Surface) void {
+    // Deinit the search overlay if present.
+    if (self.search_overlay) |*overlay| {
+        overlay.deinit();
+        self.search_overlay = null;
+    }
     // Unregister from the core app before destroying the surface.
     self.app.core_app.deleteSurface(self);
     self.core_surface.deinit();
