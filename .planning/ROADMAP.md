@@ -61,13 +61,14 @@ Plans:
   3. User can search scrollback with Ctrl+Shift+F and navigate results in an overlay
   4. User can scroll through terminal history using a visible scrollbar and Ctrl+click URLs to open them in the browser
   5. Terminal bell triggers an audible or visual notification
-**Plans**: 4 plans
+**Plans**: 5 plans
 
 Plans:
 - [x] 03-00-PLAN.md — Phase 2 UAT gap closure (keyboard input, clipboard, config reload)
 - [x] 03-01-PLAN.md — Tab infrastructure, multi-surface lifecycle, and custom tab bar in titlebar
 - [x] 03-02-PLAN.md — Split panes with binary tree layout and directional navigation
-- [ ] 03-03-PLAN.md — Search overlay, scrollbar, URL click handling, and bell notification
+- [x] 03-03-PLAN.md — Search overlay, scrollbar, URL click handling, and bell notification
+- [ ] 03-04-PLAN.md — Gap closure: scrollbar GDI painting in child HWND (TERM-02)
 
 ### Phase 4: Platform Integration & Distribution
 **Goal**: Ghostty is distributable through the Windows Store and offers platform-level integration features that differentiate it from other terminals
@@ -93,5 +94,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Foundation & Rendering Bridge | 1/3 | Complete    | 2026-02-25 |
 | 2. Single Terminal Surface | 0/2 | Complete    | 2026-02-25 |
-| 3. Tabs, Splits & Terminal Features | 3/4 | In Progress | - |
+| 3. Tabs, Splits & Terminal Features | 4/5 | In Progress | - |
 | 4. Platform Integration & Distribution | 0/2 | Not started | - |
