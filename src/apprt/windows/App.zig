@@ -10,6 +10,7 @@ const Allocator = std.mem.Allocator;
 const apprt = @import("../../apprt.zig");
 const configpkg = @import("../../config.zig");
 const CoreApp = @import("../../App.zig");
+const CoreConfig = configpkg.Config;
 const com = @import("com.zig");
 const wgl = @import("wgl.zig");
 const Surface = @import("Surface.zig");
@@ -47,6 +48,22 @@ const MSG = extern struct {
     pt: extern struct { x: i32, y: i32 },
 };
 
+const WINDOWPLACEMENT = extern struct {
+    length: u32 = @sizeOf(WINDOWPLACEMENT),
+    flags: u32 = 0,
+    showCmd: u32 = 0,
+    ptMinPosition: extern struct { x: LONG, y: LONG } = .{ .x = 0, .y = 0 },
+    ptMaxPosition: extern struct { x: LONG, y: LONG } = .{ .x = 0, .y = 0 },
+    rcNormalPosition: RECT = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
+};
+
+const MONITORINFO = extern struct {
+    cbSize: u32 = @sizeOf(MONITORINFO),
+    rcMonitor: RECT = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
+    rcWork: RECT = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 },
+    dwFlags: u32 = 0,
+};
+
 const WM_QUIT: u32 = 0x0012;
 const WM_CLOSE: u32 = 0x0010;
 const WM_DESTROY: u32 = 0x0002;
@@ -59,11 +76,14 @@ const WM_SYSKEYUP: u32 = 0x0105;
 const WM_CHAR: u32 = 0x0102;
 const WM_SYSCHAR: u32 = 0x0106;
 const WM_DPICHANGED: u32 = 0x02E0;
+const WM_SETTINGCHANGE: u32 = 0x001A;
 
 const CS_OWNDC: u32 = 0x0020;
 const CS_HREDRAW: u32 = 0x0002;
 const CS_VREDRAW: u32 = 0x0001;
 const WS_OVERLAPPEDWINDOW: u32 = 0x00CF0000;
+const WS_POPUP: u32 = 0x80000000;
+const WS_VISIBLE: u32 = 0x10000000;
 const CW_USEDEFAULT: i32 = @bitCast(@as(u32, 0x80000000));
 const SW_SHOW: i32 = 5;
 const IDC_ARROW: usize = 32512;
@@ -72,6 +92,7 @@ const IDC_ARROW: usize = 32512;
 const WM_APP_WAKEUP: u32 = 0x8000; // WM_APP range
 
 const GWLP_USERDATA: i32 = -21;
+const GWL_STYLE: i32 = -16;
 
 // WM_SIZING wParam direction values
 const WMSZ_LEFT: usize = 1;
@@ -82,6 +103,25 @@ const WMSZ_TOPRIGHT: usize = 5;
 const WMSZ_BOTTOM: usize = 6;
 const WMSZ_BOTTOMLEFT: usize = 7;
 const WMSZ_BOTTOMRIGHT: usize = 8;
+
+// SetWindowPos flags
+const SWP_NOMOVE: u32 = 0x0002;
+const SWP_NOZORDER: u32 = 0x0004;
+const SWP_NOSIZE: u32 = 0x0001;
+const SWP_FRAMECHANGED: u32 = 0x0020;
+
+// DwmSetWindowAttribute constants
+const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+
+// Registry constants
+const HKEY_CURRENT_USER: usize = 0x80000001;
+const KEY_READ: u32 = 0x20019;
+
+// Monitor constants
+const MONITOR_DEFAULTTONEAREST: u32 = 0x00000002;
+
+// HWND_TOP for SetWindowPos
+const HWND_TOP: ?HWND = null;
 
 // ---------------------------------------------------------------------------
 // Win32 function imports
@@ -126,6 +166,10 @@ extern "user32" fn SetWindowTextW(hwnd: HWND, lpString: LPCWSTR) callconv(.c) BO
 extern "user32" fn GetWindowRect(hwnd: HWND, lpRect: *RECT) callconv(.c) BOOL;
 extern "user32" fn GetClientRect(hwnd: HWND, lpRect: *RECT) callconv(.c) BOOL;
 extern "user32" fn GetDpiForWindow(hwnd: HWND) callconv(.c) u32;
+extern "user32" fn GetWindowPlacement(hwnd: HWND, lpwndpl: *WINDOWPLACEMENT) callconv(.c) BOOL;
+extern "user32" fn SetWindowPlacement(hwnd: HWND, lpwndpl: *const WINDOWPLACEMENT) callconv(.c) BOOL;
+extern "user32" fn MonitorFromWindow(hwnd: HWND, dwFlags: u32) callconv(.c) ?*anyopaque;
+extern "user32" fn GetMonitorInfoW(hMonitor: *anyopaque, lpmi: *MONITORINFO) callconv(.c) BOOL;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?LPCWSTR) callconv(.c) ?HINSTANCE;
 
 // DPI awareness
@@ -135,11 +179,13 @@ const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: isize = -4;
 // DPI-aware window rect adjustment
 extern "user32" fn AdjustWindowRectExForDpi(lpRect: *RECT, dwStyle: DWORD, bMenu: BOOL, dwExStyle: DWORD, dpi: u32) callconv(.c) BOOL;
 
-// SetWindowPos flags
-const SWP_NOMOVE: u32 = 0x0002;
-const SWP_NOZORDER: u32 = 0x0004;
-const SWP_NOSIZE: u32 = 0x0001;
-const SWP_FRAMECHANGED: u32 = 0x0020;
+// DWM for dark titlebar
+extern "dwmapi" fn DwmSetWindowAttribute(hwnd: HWND, dwAttribute: u32, pvAttribute: *const anyopaque, cbAttribute: u32) callconv(.c) i32;
+
+// Registry for theme detection
+extern "advapi32" fn RegOpenKeyExW(hKey: usize, lpSubKey: LPCWSTR, ulOptions: u32, samDesired: u32, phkResult: *usize) callconv(.c) i32;
+extern "advapi32" fn RegQueryValueExW(hKey: usize, lpValueName: LPCWSTR, lpReserved: ?*u32, lpType: ?*u32, lpData: ?[*]u8, lpcbData: *u32) callconv(.c) i32;
+extern "advapi32" fn RegCloseKey(hKey: usize) callconv(.c) i32;
 
 // ---------------------------------------------------------------------------
 // App state
@@ -150,6 +196,11 @@ hwnd: ?HWND = null,
 core_app: *CoreApp = undefined,
 alloc: Allocator = undefined,
 config: *const configpkg.Config = undefined,
+
+/// Fullscreen state.
+is_fullscreen: bool = false,
+saved_style: LONG = 0,
+saved_placement: WINDOWPLACEMENT = .{},
 
 pub fn init(
     self: *App,
@@ -205,6 +256,9 @@ pub fn init(
 
     // Store self pointer in HWND user data so wndProc can retrieve it.
     _ = SetWindowLongPtrW(hwnd, GWLP_USERDATA, @as(LONG_PTR, @intCast(@intFromPtr(self))));
+
+    // Apply initial titlebar theme based on system setting.
+    applyThemeToTitlebar(hwnd, detectSystemThemeIsDark());
 
     _ = ShowWindow(hwnd, SW_SHOW);
     log.info("Win32 window created and shown", .{});
@@ -313,12 +367,42 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
             }
             return 0;
         },
+        WM_SETTINGCHANGE => {
+            if (app) |a| {
+                // Check if the setting change is for theme ("ImmersiveColorSet").
+                const lparam_ptr: ?[*:0]const u16 = if (lparam != 0)
+                    @ptrFromInt(@as(usize, @intCast(lparam)))
+                else
+                    null;
+                if (lparam_ptr) |setting_str| {
+                    const immersive = comptime std.unicode.utf8ToUtf16LeStringLiteral("ImmersiveColorSet");
+                    if (strEqlW(setting_str, immersive)) {
+                        const is_dark = detectSystemThemeIsDark();
+                        applyThemeToTitlebar(hwnd, is_dark);
+                        const scheme: apprt.ColorScheme = if (is_dark) .dark else .light;
+                        a.core_app.colorSchemeEvent(a, scheme) catch |err| {
+                            log.warn("colorSchemeEvent error: {}", .{err});
+                        };
+                    }
+                }
+            }
+            return DefWindowProcW(hwnd, msg, wparam, lparam);
+        },
         WM_APP_WAKEUP => {
             // No-op: just wakes up GetMessageW so we can tick the core.
             return 0;
         },
         else => return DefWindowProcW(hwnd, msg, wparam, lparam),
     }
+}
+
+/// Compare two null-terminated UTF-16 strings.
+fn strEqlW(a: [*:0]const u16, b: [*:0]const u16) bool {
+    var i: usize = 0;
+    while (a[i] != 0 and b[i] != 0) : (i += 1) {
+        if (a[i] != b[i]) return false;
+    }
+    return a[i] == b[i];
 }
 
 /// Snap a resize rect to cell boundaries for cell-snapped resize.
@@ -375,6 +459,82 @@ fn snapResizeRect(self: *App, rect: *RECT, direction: usize) void {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Fullscreen toggle
+// ---------------------------------------------------------------------------
+
+fn toggleFullscreen(self: *App) void {
+    const hwnd = self.hwnd orelse return;
+
+    if (!self.is_fullscreen) {
+        // Save current window style and placement.
+        self.saved_style = @as(LONG, @truncate(GetWindowLongPtrW(hwnd, GWL_STYLE)));
+        self.saved_placement.length = @sizeOf(WINDOWPLACEMENT);
+        _ = GetWindowPlacement(hwnd, &self.saved_placement);
+
+        // Get the monitor rect for the current monitor.
+        const monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) orelse return;
+        var mi: MONITORINFO = .{};
+        mi.cbSize = @sizeOf(MONITORINFO);
+        if (GetMonitorInfoW(monitor, &mi) == 0) return;
+
+        // Set borderless style and fill the monitor.
+        _ = SetWindowLongPtrW(hwnd, GWL_STYLE, @as(LONG_PTR, @intCast(WS_POPUP | WS_VISIBLE)));
+        _ = SetWindowPos(
+            hwnd,
+            HWND_TOP,
+            mi.rcMonitor.left,
+            mi.rcMonitor.top,
+            mi.rcMonitor.right - mi.rcMonitor.left,
+            mi.rcMonitor.bottom - mi.rcMonitor.top,
+            SWP_FRAMECHANGED,
+        );
+
+        self.is_fullscreen = true;
+    } else {
+        // Restore saved style and placement.
+        _ = SetWindowLongPtrW(hwnd, GWL_STYLE, @as(LONG_PTR, @intCast(self.saved_style)));
+        _ = SetWindowPlacement(hwnd, &self.saved_placement);
+        _ = SetWindowPos(hwnd, null, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+
+        self.is_fullscreen = false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Theme detection and titlebar
+// ---------------------------------------------------------------------------
+
+/// Detect whether the system is using a dark theme by reading the registry.
+fn detectSystemThemeIsDark() bool {
+    const subkey = comptime std.unicode.utf8ToUtf16LeStringLiteral("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
+    const value_name = comptime std.unicode.utf8ToUtf16LeStringLiteral("AppsUseLightTheme");
+
+    var hkey: usize = 0;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, subkey, 0, KEY_READ, &hkey) != 0) {
+        // Default to dark if we can't read the registry.
+        return true;
+    }
+    defer _ = RegCloseKey(hkey);
+
+    var data: u32 = 1; // default to light (1)
+    var data_size: u32 = @sizeOf(u32);
+    _ = RegQueryValueExW(hkey, value_name, null, null, @ptrCast(&data), &data_size);
+
+    // AppsUseLightTheme: 0 = dark, 1 = light
+    return data == 0;
+}
+
+/// Apply dark or light titlebar to the window via DwmSetWindowAttribute.
+fn applyThemeToTitlebar(hwnd: HWND, is_dark: bool) void {
+    const value: i32 = if (is_dark) 1 else 0;
+    _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, @ptrCast(&value), @sizeOf(i32));
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 /// Called by CoreApp to wake up the event loop.
 pub fn wakeup(self: *App) void {
     if (self.hwnd) |hwnd| {
@@ -426,6 +586,37 @@ pub fn performAction(
                 );
             }
             return true;
+        },
+        .toggle_fullscreen => {
+            // Fullscreen mode enum (native, macos variants) -- we always use native on Windows.
+            self.toggleFullscreen();
+            return true;
+        },
+        .reload_config => {
+            const opts = value;
+            if (opts.soft) {
+                // Soft reload: re-apply existing config with new conditional state.
+                try self.core_app.updateConfig(self, self.config);
+            } else {
+                // Hard reload: load config from disk and propagate.
+                var config = try CoreConfig.load(self.alloc);
+                defer config.deinit();
+                try self.core_app.updateConfig(self, &config);
+            }
+            return true;
+        },
+        .config_change => {
+            // Config has changed -- re-apply window-level settings.
+            const new_config = value.config;
+            self.config = new_config;
+            if (self.hwnd) |hwnd| {
+                applyThemeToTitlebar(hwnd, detectSystemThemeIsDark());
+            }
+            return true;
+        },
+        .color_change, .render => {
+            _ = target;
+            return false;
         },
         else => {
             _ = target;
