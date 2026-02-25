@@ -16,12 +16,12 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Tabs & Splits
 
-- [ ] **TAB-01**: User can open multiple tabs in a single window with new tab button and Ctrl+T
-- [ ] **TAB-02**: User can reorder tabs by dragging and close tabs with middle-click or Ctrl+W
+- [x] **TAB-01**: User can open multiple tabs in a single window with new tab button and Ctrl+T
+- [x] **TAB-02**: User can reorder tabs by dragging and close tabs with middle-click or Ctrl+W
 - [ ] **TAB-03**: User can split the terminal horizontally and vertically with keyboard shortcuts
 - [ ] **TAB-04**: User can navigate between splits with keyboard shortcuts
-- [ ] **TAB-05**: Tabs render in the title bar, saving vertical space (tabs-in-titlebar)
-- [ ] **TAB-06**: User can assign colors to tabs for visual differentiation
+- [x] **TAB-05**: Tabs render in the title bar, saving vertical space (tabs-in-titlebar)
+- [x] **TAB-06**: User can assign colors to tabs for visual differentiation
 
 ### Input & Clipboard
 
@@ -103,12 +103,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WIN-02 | Phase 2 | Complete |
 | WIN-03 | Phase 2 | Complete |
 | WIN-04 | Phase 2 | Complete |
-| TAB-01 | Phase 3 | Pending |
-| TAB-02 | Phase 3 | Pending |
+| TAB-01 | Phase 3 | Complete |
+| TAB-02 | Phase 3 | Complete |
 | TAB-03 | Phase 3 | Pending |
 | TAB-04 | Phase 3 | Pending |
-| TAB-05 | Phase 3 | Pending |
-| TAB-06 | Phase 3 | Pending |
+| TAB-05 | Phase 3 | Complete |
+| TAB-06 | Phase 3 | Complete |
 | INP-01 | Phase 2 | Complete |
 | INP-02 | Phase 2 | Complete |
 | TERM-01 | Phase 3 | Pending |

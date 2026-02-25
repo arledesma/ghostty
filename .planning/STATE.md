@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 ## Current Position
 
 Phase: 3 of 4 (Tabs, Splits, Terminal Features)
-Plan: 1 of 4 in current phase
+Plan: 2 of 4 in current phase
 Status: Executing Phase 3
-Last activity: 2026-02-25 -- Completed 03-00-PLAN.md
+Last activity: 2026-02-25 -- Completed 03-01-PLAN.md
 
-Progress: [██████░░░░] 60%
+Progress: [███████░░░] 70%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
+- Total plans completed: 7
 - Average duration: 7min
-- Total execution time: 0.7 hours
+- Total execution time: 0.9 hours
 
 **By Phase:**
 
@@ -29,12 +29,12 @@ Progress: [██████░░░░] 60%
 |-------|-------|--------|----------|
 | 1     | 3     | 27min  | 9min     |
 | 2     | 2     | 11min  | 5.5min   |
-| 3     | 1     | 5min   | 5min     |
+| 3     | 2     | 15min  | 7.5min   |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-03 (7min), 01-02 (13min), 02-01 (5min), 02-02 (6min), 03-00 (5min)
-- Trend: improving
+- Last 5 plans: 01-02 (13min), 02-01 (5min), 02-02 (6min), 03-00 (5min), 03-01 (10min)
+- Trend: stable
 
 *Updated after each plan completion*
 
@@ -71,6 +71,10 @@ Recent decisions affecting current work:
 - [03-00]: Mouse events update cursor position before reporting button state
 - [03-00]: Config reload stores new config in owned_config to prevent use-after-free
 - [03-00]: Surface registered with core_app.addSurface for proper enumeration
+- [03-01]: Child HWND per tab with WS_CHILD|WS_CLIPCHILDREN for independent WGL contexts
+- [03-01]: DwmExtendFrameIntoClientArea for tab bar in titlebar (no WinUI dependency)
+- [03-01]: GDI TextOutW/FillRect for tab painting rather than Direct2D
+- [03-01]: ArrayList(Tab) with Zig 0.15 unmanaged API (allocator per method call)
 
 ### Pending Todos
 
@@ -84,5 +88,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 03-00-PLAN.md
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None
