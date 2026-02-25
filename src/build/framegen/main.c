@@ -1,14 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <dirent.h>
-#include <sys/stat.h>
 #include <errno.h>
 #include <zlib.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dirent.h>
+#include <sys/stat.h>
+#endif
 
 #define SEPARATOR '\x01'
 #define CHUNK_SIZE 16384
 
+#ifndef _WIN32
 static int filter_frames(const struct dirent *entry) {
     const char *name = entry->d_name;
     size_t len = strlen(name);
@@ -17,6 +23,11 @@ static int filter_frames(const struct dirent *entry) {
 
 static int compare_frames(const struct dirent **a, const struct dirent **b) {
     return strcmp((*a)->d_name, (*b)->d_name);
+}
+#endif
+
+static int compare_strings(const void *a, const void *b) {
+    return strcmp(*(const char **)a, *(const char **)b);
 }
 
 static char *read_file(const char *path, size_t *out_size) {
@@ -54,17 +65,53 @@ int main(int argc, char **argv) {
     const char *frames_dir = argv[1];
     const char *output_file = argv[2];
 
+    int n = 0;
+    char **names = NULL;
+    int names_cap = 0;
+
+#ifdef _WIN32
+    char search_path[4096];
+    snprintf(search_path, sizeof(search_path), "%s\\*.txt", frames_dir);
+
+    WIN32_FIND_DATAA find_data;
+    HANDLE hFind = FindFirstFileA(search_path, &find_data);
+    if (hFind == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "Failed to scan directory %s\n", frames_dir);
+        return 1;
+    }
+
+    do {
+        if (n >= names_cap) {
+            names_cap = names_cap ? names_cap * 2 : 64;
+            names = realloc(names, names_cap * sizeof(char *));
+        }
+        names[n] = strdup(find_data.cFileName);
+        n++;
+    } while (FindNextFileA(hFind, &find_data));
+    FindClose(hFind);
+#else
     struct dirent **namelist;
-    int n = scandir(frames_dir, &namelist, filter_frames, compare_frames);
+    n = scandir(frames_dir, &namelist, filter_frames, compare_frames);
     if (n < 0) {
         fprintf(stderr, "Failed to scan directory %s: %s\n", frames_dir, strerror(errno));
         return 1;
     }
 
+    names = malloc(n * sizeof(char *));
+    for (int i = 0; i < n; i++) {
+        names[i] = strdup(namelist[i]->d_name);
+        free(namelist[i]);
+    }
+    free(namelist);
+#endif
+
     if (n == 0) {
         fprintf(stderr, "No frame files found in %s\n", frames_dir);
         return 1;
     }
+
+    /* Sort names to ensure consistent ordering across platforms */
+    qsort(names, n, sizeof(char *), compare_strings);
 
     size_t total_size = 0;
     char **frame_contents = calloc(n, sizeof(char*));
@@ -72,13 +119,13 @@ int main(int argc, char **argv) {
 
     for (int i = 0; i < n; i++) {
         char path[4096];
-        snprintf(path, sizeof(path), "%s/%s", frames_dir, namelist[i]->d_name);
-        
+        snprintf(path, sizeof(path), "%s/%s", frames_dir, names[i]);
+
         frame_contents[i] = read_file(path, &frame_sizes[i]);
         if (!frame_contents[i]) {
             return 1;
         }
-        
+
         total_size += frame_sizes[i];
         if (i < n - 1) total_size++;
     }
@@ -111,7 +158,7 @@ int main(int argc, char **argv) {
     stream.next_out = compressed;
     stream.avail_out = compressed_size;
 
-    // Use -MAX_WBITS for raw DEFLATE (no zlib wrapper)
+    /* Use -MAX_WBITS for raw DEFLATE (no zlib wrapper) */
     int ret = deflateInit2(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -MAX_WBITS, 8, Z_DEFAULT_STRATEGY);
     if (ret != Z_OK) {
         fprintf(stderr, "deflateInit2 failed: %d\n", ret);
@@ -127,7 +174,7 @@ int main(int argc, char **argv) {
 
     compressed_size = stream.total_out;
     deflateEnd(&stream);
-    
+
     FILE *out = fopen(output_file, "wb");
     if (!out) {
         fprintf(stderr, "Failed to create %s: %s\n", output_file, strerror(errno));
@@ -140,6 +187,16 @@ int main(int argc, char **argv) {
     }
 
     fclose(out);
+
+    for (int i = 0; i < n; i++) {
+        free(names[i]);
+        free(frame_contents[i]);
+    }
+    free(names);
+    free(frame_contents);
+    free(frame_sizes);
+    free(joined);
+    free(compressed);
 
     return 0;
 }

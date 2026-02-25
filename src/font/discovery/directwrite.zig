@@ -442,10 +442,10 @@ pub const DirectWrite = struct {
         }
 
         // Collect all font file paths from this family
-        var paths = std.ArrayList(FontPath).init(alloc);
+        var paths: std.ArrayListUnmanaged(FontPath) = .{};
         errdefer {
             for (paths.items) |*p| p.deinit(alloc);
-            paths.deinit();
+            paths.deinit(alloc);
         }
 
         // Target weight and style from descriptor
@@ -471,7 +471,7 @@ pub const DirectWrite = struct {
 
             // Extract the file path from this font
             if (extractFontPath(alloc, dw_font.?)) |font_path| {
-                try paths.append(font_path);
+                try paths.append(alloc, font_path);
             } else |_| {
                 // Skip fonts we can't extract paths from
                 continue;
@@ -488,14 +488,14 @@ pub const DirectWrite = struct {
                 defer dw_font.?.release();
 
                 if (extractFontPath(alloc, dw_font.?)) |font_path| {
-                    try paths.append(font_path);
+                    try paths.append(alloc, font_path);
                 } else |_| {
                     continue;
                 }
             }
         }
 
-        const owned_slice = try paths.toOwnedSlice();
+        const owned_slice = try paths.toOwnedSlice(alloc);
 
         return .{
             .alloc = alloc,

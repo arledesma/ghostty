@@ -132,6 +132,15 @@ pub fn wakeup(self: *App) void {
     // TODO: PostMessage to wake up the Windows message loop
 }
 
+pub fn performIpc(
+    _: std.mem.Allocator,
+    _: apprt.ipc.Target,
+    comptime action: apprt.ipc.Action.Key,
+    _: apprt.ipc.Action.Value(action),
+) !bool {
+    return false;
+}
+
 pub fn performAction(
     self: *App,
     target: apprt.Target,

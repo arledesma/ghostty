@@ -143,7 +143,7 @@ extern "api-ms-win-core-winrt-string-l1-1-0" fn WindowsDeleteString(
 /// Create a stack-based reference HSTRING from a comptime-known UTF-16 literal.
 /// The returned HSTRING is valid for the lifetime of the `header` it writes to.
 /// No deallocation is required for reference strings.
-pub fn hstring(comptime literal: [:0]const u16, header: *HSTRING_HEADER) HResultError!HSTRING {
+pub fn hstring(literal: [:0]const u16, header: *HSTRING_HEADER) HResultError!HSTRING {
     var result: HSTRING = undefined;
     try check(WindowsCreateStringReference(
         literal.ptr,
@@ -210,11 +210,12 @@ pub fn getActivationFactory(class_name: HSTRING, iid: *const GUID) HResultError!
 /// Converts a comptime ASCII string to a UTF-16 null-terminated array.
 /// Useful for WinRT class name constants.
 pub fn L(comptime str: []const u8) [:0]const u16 {
-    comptime {
+    return comptime blk: {
         var result: [str.len:0]u16 = undefined;
         for (str, 0..) |c, i| {
             result[i] = c;
         }
-        return &result;
-    }
+        const final = result;
+        break :blk &final;
+    };
 }
