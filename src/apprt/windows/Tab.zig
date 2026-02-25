@@ -63,7 +63,29 @@ extern "user32" fn MoveWindow(hwnd: HWND, x: i32, y: i32, nWidth: i32, nHeight: 
 extern "user32" fn SetFocus(hwnd: HWND) callconv(.c) ?HWND;
 extern "user32" fn RegisterClassExW(lpWndClass: *const WNDCLASSEXW) callconv(.c) u16;
 extern "user32" fn DefWindowProcW(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LRESULT;
+extern "user32" fn SetWindowLongPtrW(hwnd: HWND, nIndex: i32, dwNewLong: LONG_PTR) callconv(.c) LONG_PTR;
+extern "user32" fn GetWindowLongPtrW(hwnd: HWND, nIndex: i32) callconv(.c) LONG_PTR;
+extern "user32" fn BeginPaint(hwnd: HWND, lpPaint: *PAINTSTRUCT) callconv(.c) ?HDC;
+extern "user32" fn EndPaint(hwnd: HWND, lpPaint: *const PAINTSTRUCT) callconv(.c) BOOL;
+extern "gdi32" fn FillRect(hdc: HDC, lprc: *const RECT, hbr: HBRUSH) callconv(.c) i32;
+extern "gdi32" fn CreateSolidBrush(color: u32) callconv(.c) ?HBRUSH;
+extern "gdi32" fn DeleteObject(ho: HGDIOBJ) callconv(.c) BOOL;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?LPCWSTR) callconv(.c) ?HINSTANCE;
+
+const HDC = *anyopaque;
+const HBRUSH = *anyopaque;
+const HGDIOBJ = *anyopaque;
+
+const PAINTSTRUCT = extern struct {
+    hdc: ?HDC,
+    fErase: BOOL,
+    rcPaint: RECT,
+    fRestore: BOOL,
+    fIncUpdate: BOOL,
+    rgbReserved: [32]u8,
+};
+
+const WM_PAINT: u32 = 0x000F;
 
 const WNDCLASSEXW = extern struct {
     cbSize: u32 = @sizeOf(WNDCLASSEXW),
@@ -181,6 +203,10 @@ pub fn init(
         .color = null,
         .zoomed = false,
     };
+
+    // Store a back-pointer to this Tab on the child HWND so childWndProc
+    // can retrieve it (e.g. for WM_PAINT scrollbar painting).
+    _ = SetWindowLongPtrW(child, GWLP_USERDATA, @as(LONG_PTR, @intCast(@intFromPtr(self))));
 
     // Create and initialize the first surface.
     const surface = try alloc.create(Surface);
@@ -395,8 +421,100 @@ pub fn getFirstSurface(self: *Tab) ?*Surface {
 // ---------------------------------------------------------------------------
 
 fn childWndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LRESULT {
+    if (msg == WM_PAINT) {
+        // Retrieve Tab pointer from GWLP_USERDATA.
+        const tab_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (tab_ptr != 0) {
+            const tab: *Tab = @ptrFromInt(@as(usize, @intCast(tab_ptr)));
+            tab.paintScrollbars(hwnd);
+            return 0;
+        }
+    }
     // The child HWND is a simple container. All input messages are forwarded
     // to the parent by DefWindowProcW's default child handling, or handled
     // by the parent's wndProc which routes to the active tab's surface.
     return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
+// ---------------------------------------------------------------------------
+// Scrollbar painting
+// ---------------------------------------------------------------------------
+
+/// Paint scrollbars for all visible surfaces that have scrollback content.
+fn paintScrollbars(self: *Tab, hwnd: HWND) void {
+    var ps: PAINTSTRUCT = std.mem.zeroes(PAINTSTRUCT);
+    const hdc = BeginPaint(hwnd, &ps) orelse {
+        return;
+    };
+    defer _ = EndPaint(hwnd, &ps);
+
+    // Collect all visible surfaces and paint scrollbar for each that has scrollback.
+    const root = self.root orelse return;
+    var surfaces: [64]*Surface = undefined;
+    var count: usize = 0;
+    SplitTree.collectSurfaces(root, &surfaces, &count);
+
+    for (surfaces[0..count]) |surface| {
+        if (surface.scroll_total > surface.scroll_view_len) {
+            paintSurfaceScrollbar(hdc, surface);
+        }
+    }
+}
+
+/// Paint a scrollbar overlay on the right edge of a surface's area.
+fn paintSurfaceScrollbar(hdc: HDC, surface: *Surface) void {
+    const SCROLLBAR_WIDTH: i32 = 8;
+
+    // Get the surface's area within the child HWND.
+    var rect: RECT = std.mem.zeroes(RECT);
+    if (GetClientRect(surface.hwnd, &rect) == 0) return;
+
+    const track_right = rect.right;
+    const track_left = track_right - SCROLLBAR_WIDTH;
+    const track_top = rect.top;
+    const track_bottom = rect.bottom;
+    const track_height = track_bottom - track_top;
+    if (track_height <= 0) return;
+
+    // Paint track (dark gray background).
+    const track_rect = RECT{
+        .left = track_left,
+        .top = track_top,
+        .right = track_right,
+        .bottom = track_bottom,
+    };
+    const track_brush = CreateSolidBrush(0x00333333) orelse return;
+    defer _ = DeleteObject(@ptrCast(track_brush));
+    _ = FillRect(hdc, &track_rect, track_brush);
+
+    // Calculate thumb position and size.
+    const total = surface.scroll_total;
+    const view_len = surface.scroll_view_len;
+    const offset = surface.scroll_offset;
+    if (total == 0) return;
+
+    // Thumb size proportional to view_len / total, minimum 20px.
+    const thumb_height_f: f64 = @as(f64, @floatFromInt(view_len)) / @as(f64, @floatFromInt(total)) * @as(f64, @floatFromInt(track_height));
+    const thumb_height: i32 = @intFromFloat(@max(thumb_height_f, 20.0));
+
+    // Thumb position: offset is distance from bottom.
+    // When offset=0, thumb is at the bottom. When offset=total-view_len, thumb is at the top.
+    const scrollable = if (total > view_len) total - view_len else 0;
+    const thumb_pos_f: f64 = if (scrollable > 0)
+        @as(f64, @floatFromInt(scrollable - offset)) / @as(f64, @floatFromInt(scrollable)) * @as(f64, @floatFromInt(track_height - thumb_height))
+    else
+        0.0;
+    const thumb_top: i32 = track_top + @as(i32, @intFromFloat(thumb_pos_f));
+    const thumb_bottom: i32 = @min(thumb_top + thumb_height, track_bottom);
+
+    // Paint thumb (lighter gray).
+    const thumb_rect = RECT{
+        .left = track_left,
+        .top = thumb_top,
+        .right = track_right,
+        .bottom = thumb_bottom,
+    };
+    const thumb_brush = CreateSolidBrush(0x00888888) orelse return;
+    defer _ = DeleteObject(@ptrCast(thumb_brush));
+    _ = FillRect(hdc, &thumb_rect, thumb_brush);
 }
