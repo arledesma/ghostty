@@ -174,6 +174,10 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
             // to compile for OpenGL targets but libghostty is strictly
             // broken for rendering on this platforms.
         },
+
+        apprt.windows => {
+            // TODO: Windows OpenGL via ANGLE/EGL -- implemented in Plan 02
+        },
     }
 
     // These are very noisy so this is commented, but easy to uncomment
@@ -213,6 +217,10 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
             // to compile for OpenGL targets but libghostty is strictly
             // broken for rendering on this platforms.
         },
+
+        apprt.windows => {
+            // TODO: Windows EGL context management -- implemented in Plan 02
+        },
     }
 }
 
@@ -230,6 +238,10 @@ pub fn threadExit(self: *const OpenGL) void {
 
         apprt.embedded => {
             // TODO: see threadEnter
+        },
+
+        apprt.windows => {
+            // TODO: Windows EGL context release -- implemented in Plan 02
         },
     }
 }

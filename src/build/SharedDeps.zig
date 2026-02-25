@@ -540,7 +540,7 @@ pub fn add(
         if (self.config.flatpak) step.linkSystemLibrary2("gtk4", dynamic_link_opts);
 
         switch (self.config.app_runtime) {
-            .none => {},
+            .none, .windows => {},
             .gtk => try self.addGtkNg(step),
         }
     }
