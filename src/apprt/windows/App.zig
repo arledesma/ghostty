@@ -58,6 +58,7 @@ const WM_SYSKEYDOWN: u32 = 0x0104;
 const WM_SYSKEYUP: u32 = 0x0105;
 const WM_CHAR: u32 = 0x0102;
 const WM_SYSCHAR: u32 = 0x0106;
+const WM_DPICHANGED: u32 = 0x02E0;
 
 const CS_OWNDC: u32 = 0x0020;
 const CS_HREDRAW: u32 = 0x0002;
@@ -127,9 +128,18 @@ extern "user32" fn GetClientRect(hwnd: HWND, lpRect: *RECT) callconv(.c) BOOL;
 extern "user32" fn GetDpiForWindow(hwnd: HWND) callconv(.c) u32;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?LPCWSTR) callconv(.c) ?HINSTANCE;
 
+// DPI awareness
+extern "user32" fn SetProcessDpiAwarenessContext(value: isize) callconv(.c) BOOL;
+const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: isize = -4;
+
+// DPI-aware window rect adjustment
+extern "user32" fn AdjustWindowRectExForDpi(lpRect: *RECT, dwStyle: DWORD, bMenu: BOOL, dwExStyle: DWORD, dpi: u32) callconv(.c) BOOL;
+
 // SetWindowPos flags
 const SWP_NOMOVE: u32 = 0x0002;
 const SWP_NOZORDER: u32 = 0x0004;
+const SWP_NOSIZE: u32 = 0x0001;
+const SWP_FRAMECHANGED: u32 = 0x0020;
 
 // ---------------------------------------------------------------------------
 // App state
@@ -151,6 +161,10 @@ pub fn init(
     const alloc = core_app.alloc;
     self.alloc = alloc;
     self.core_app = core_app;
+
+    // Set per-monitor DPI awareness V2 before any window creation.
+    // Ignore failure -- may already be set by manifest or prior call.
+    _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     // Initialize COM runtime (needed for DirectWrite font discovery).
     try com.roInitialize();
@@ -279,6 +293,26 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
             // WM_CHAR is dispatched by TranslateMessage but we don't need it.
             return 0;
         },
+        WM_DPICHANGED => {
+            if (app) |a| {
+                // New DPI is in the low word of wParam.
+                const new_dpi: u32 = @intCast(wparam & 0xFFFF);
+                // lParam points to a suggested RECT for the new window size.
+                const suggested: *const RECT = @ptrFromInt(@as(usize, @intCast(lparam)));
+                _ = SetWindowPos(
+                    hwnd,
+                    null,
+                    suggested.left,
+                    suggested.top,
+                    suggested.right - suggested.left,
+                    suggested.bottom - suggested.top,
+                    SWP_NOZORDER | SWP_FRAMECHANGED,
+                );
+                // Notify core of the DPI change.
+                a.surface.contentScaleCallback(new_dpi);
+            }
+            return 0;
+        },
         WM_APP_WAKEUP => {
             // No-op: just wakes up GetMessageW so we can tick the core.
             return 0;
@@ -291,14 +325,12 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
 fn snapResizeRect(self: *App, rect: *RECT, direction: usize) void {
     const hwnd = self.hwnd orelse return;
 
-    // Compute non-client area overhead (borders, titlebar).
-    var window_rect: RECT = std.mem.zeroes(RECT);
-    var client_rect: RECT = std.mem.zeroes(RECT);
-    _ = GetWindowRect(hwnd, &window_rect);
-    _ = GetClientRect(hwnd, &client_rect);
-
-    const nc_width = (window_rect.right - window_rect.left) - (client_rect.right - client_rect.left);
-    const nc_height = (window_rect.bottom - window_rect.top) - (client_rect.bottom - client_rect.top);
+    // Compute non-client area overhead using DPI-aware calculation.
+    const dpi = GetDpiForWindow(hwnd);
+    var nc_rect: RECT = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 };
+    _ = AdjustWindowRectExForDpi(&nc_rect, WS_OVERLAPPEDWINDOW, 0, 0, dpi);
+    const nc_width = (nc_rect.right - nc_rect.left);
+    const nc_height = (nc_rect.bottom - nc_rect.top);
 
     // Get cell dimensions from the core surface's size info.
     const cell_width = self.surface.core_surface.size.cell.width;
