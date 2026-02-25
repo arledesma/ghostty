@@ -10,28 +10,29 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 ## Current Position
 
 Phase: 1 of 4 (Foundation & Rendering Bridge)
-Plan: 1 of 3 in current phase
-Status: Executing
-Last activity: 2026-02-24 -- Completed 01-01-PLAN.md
+Plan: 3 of 3 in current phase
+Status: Phase 1 complete
+Last activity: 2026-02-24 -- Completed 01-03-PLAN.md
 
-Progress: [█░░░░░░░░░] 10%
+Progress: [███░░░░░░░] 30%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
+- Total plans completed: 2
 - Average duration: 7min
-- Total execution time: 0.1 hours
+- Total execution time: 0.2 hours
 
 **By Phase:**
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 1 | 1 | 7min | 7min |
+| Phase | Plans | Total  | Avg/Plan |
+|-------|-------|--------|----------|
+| 1     | 2     | 14min  | 7min     |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (7min)
-- Trend: baseline
+
+- Last 5 plans: 01-01 (7min), 01-03 (7min)
+- Trend: stable
 
 *Updated after each plan completion*
 
@@ -47,6 +48,9 @@ Recent decisions affecting current work:
 - [01-01]: Used api-ms-win-core-winrt extern linking for WinRT activation APIs instead of zigwin32
 - [01-01]: ISwapChainPanelNative inherits from IUnknown (3 base), all other WinUI interfaces from IInspectable (6 base)
 - [01-01]: Windows apprt GObject switches use void (same as none) since Windows has no GObject dependency
+- [01-03]: Manual COM vtable definitions for DirectWrite instead of zigwin32 (not in project deps)
+- [01-03]: DirectWrite discovery in separate file (discovery/directwrite.zig) following face/ directory pattern
+- [01-03]: hasCodepoint returns true for DW deferred faces -- charset metadata not carried, checked at load time
 
 ### Pending Todos
 
@@ -60,5 +64,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 01-01-PLAN.md
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None
