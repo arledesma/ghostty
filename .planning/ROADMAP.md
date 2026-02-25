@@ -13,7 +13,7 @@ This roadmap delivers a native WinUI 3 Windows application runtime for Ghostty i
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation & Rendering Bridge** - COM bridge, ANGLE+SwapChainPanel proof-of-concept, DirectWrite font discovery, apprt scaffold (completed 2026-02-25)
-- [ ] **Phase 2: Single Terminal Surface** - Working terminal in native WinUI 3 window with input, clipboard, DPI, fullscreen, config
+- [x] **Phase 2: Single Terminal Surface** - Working terminal in native WinUI 3 window with input, clipboard, DPI, fullscreen, config (completed 2026-02-25)
 - [ ] **Phase 3: Tabs, Splits & Terminal Features** - Multi-tab, split-pane interface with search, scrollbar, URL handling, bell
 - [ ] **Phase 4: Platform Integration & Distribution** - MSIX packaging, Quick Terminal, notifications, command palette
 
@@ -61,12 +61,12 @@ Plans:
   3. User can search scrollback with Ctrl+Shift+F and navigate results in an overlay
   4. User can scroll through terminal history using a visible scrollbar and Ctrl+click URLs to open them in the browser
   5. Terminal bell triggers an audible or visual notification
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 03-01: TabView integration and tab management
-- [ ] 03-02: Split panes and multi-surface lifecycle
-- [ ] 03-03: Search overlay, scrollbar, URL handling, and bell
+- [ ] 03-01-PLAN.md — Tab infrastructure, multi-surface lifecycle, and custom tab bar in titlebar
+- [ ] 03-02-PLAN.md — Split panes with binary tree layout and directional navigation
+- [ ] 03-03-PLAN.md — Search overlay, scrollbar, URL click handling, and bell notification
 
 ### Phase 4: Platform Integration & Distribution
 **Goal**: Ghostty is distributable through the Windows Store and offers platform-level integration features that differentiate it from other terminals
@@ -91,6 +91,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & Rendering Bridge | 1/3 | Complete    | 2026-02-25 |
-| 2. Single Terminal Surface | 0/2 | Not started | - |
+| 2. Single Terminal Surface | 0/2 | Complete    | 2026-02-25 |
 | 3. Tabs, Splits & Terminal Features | 0/3 | Not started | - |
 | 4. Platform Integration & Distribution | 0/2 | Not started | - |
