@@ -90,9 +90,6 @@ height: u32,
 /// Current window title set by the terminal via set_title.
 title: ?[:0]const u8,
 
-/// Index of the tab this surface belongs to.
-tab_index: usize,
-
 // ---------------------------------------------------------------------------
 // Accessors
 // ---------------------------------------------------------------------------
@@ -137,7 +134,6 @@ pub fn init(self: *Surface, app: *App, config: *const configpkg.Config, core_app
         .width = w,
         .height = h,
         .title = null,
-        .tab_index = 0,
     };
 
     // Initialize the core surface (PTY, terminal, renderer thread, etc.).
@@ -228,11 +224,12 @@ pub fn getTitle(self: *Surface) ?[:0]const u8 {
     return self.title;
 }
 
-/// Close the surface by requesting the App to close the containing tab.
+/// Close the surface by requesting the App to remove it from its split tree.
+/// If the surface is the last one in a tab, the tab is closed.
 pub fn close(self: *Surface, process_active: bool) void {
     _ = process_active;
-    self.app.closeTab(self.tab_index) catch |err| {
-        log.err("closeTab error from surface close: {}", .{err});
+    self.app.closeSurface(self) catch |err| {
+        log.err("closeSurface error from surface close: {}", .{err});
     };
 }
 

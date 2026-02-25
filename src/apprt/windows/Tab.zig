@@ -1,8 +1,9 @@
 /// Tab abstraction for the Windows apprt multi-tab architecture.
 ///
-/// Each Tab owns a child HWND (WS_CHILD) within the main window's client area
-/// and a Surface that renders into it via its own WGL context. The child HWND
-/// is shown/hidden based on whether the tab is active.
+/// Each Tab owns a SplitTree root node (binary tree of split panes).
+/// Leaf nodes in the tree are Surfaces, each with its own child HWND
+/// and WGL context. The tab's child HWND is the parent for all split
+/// surface HWNDs.
 const Tab = @This();
 
 const std = @import("std");
@@ -10,6 +11,7 @@ const Allocator = std.mem.Allocator;
 const configpkg = @import("../../config.zig");
 const CoreApp = @import("../../App.zig");
 const Surface = @import("Surface.zig");
+const SplitTree = @import("SplitTree.zig");
 
 const log = std.log.scoped(.windows_tab);
 
@@ -29,12 +31,7 @@ const WPARAM = usize;
 const LPARAM = isize;
 const COLORREF = u32;
 
-const RECT = extern struct {
-    left: LONG,
-    top: LONG,
-    right: LONG,
-    bottom: LONG,
-};
+const RECT = SplitTree.RECT;
 
 const WS_CHILD: u32 = 0x40000000;
 const WS_VISIBLE: u32 = 0x10000000;
@@ -100,11 +97,11 @@ var class_registered: bool = false;
 // Fields
 // ---------------------------------------------------------------------------
 
-/// The Surface that renders terminal content in this tab.
-surface: Surface = undefined,
+/// The SplitTree root node. All surfaces live as leaves in this tree.
+root: ?*SplitTree.Node = null,
 
-/// Whether the surface has been initialized.
-surface_initialized: bool = false,
+/// The currently focused surface within this tab's split tree.
+focused_surface: ?*Surface = null,
 
 /// Tab title (displayed in the tab bar). Null means use surface title.
 title: ?[:0]const u8 = null,
@@ -112,18 +109,21 @@ title: ?[:0]const u8 = null,
 /// Optional tab color for visual differentiation (COLORREF: 0x00BBGGRR).
 color: ?COLORREF = null,
 
-/// The child HWND that the surface renders into.
+/// The child HWND that contains all split surface HWNDs.
 child_hwnd: ?HWND = null,
 
 /// Whether this tab is currently active/visible.
 active: bool = false,
+
+/// Whether the focused surface is zoomed to fill the entire tab area.
+zoomed: bool = false,
 
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
 /// Initialize a tab: register the child window class (once), create a child
-/// HWND within the parent, and initialize the Surface with its own WGL context.
+/// HWND within the parent, and initialize the first Surface with its own WGL context.
 pub fn init(
     self: *Tab,
     parent_hwnd: HWND,
@@ -175,27 +175,34 @@ pub fn init(
     self.* = .{
         .child_hwnd = child,
         .active = false,
-        .surface = undefined,
-        .surface_initialized = false,
+        .root = null,
+        .focused_surface = null,
         .title = null,
         .color = null,
+        .zoomed = false,
     };
 
-    // Initialize the surface with its own WGL context on the child HWND.
-    try self.surface.init(app, config, core_app, child);
-    self.surface_initialized = true;
+    // Create and initialize the first surface.
+    const surface = try alloc.create(Surface);
+    errdefer alloc.destroy(surface);
 
-    log.info("Tab initialized with child HWND, content area {}x{}", .{ client_width, content_h });
+    try surface.init(app, config, core_app, child);
 
-    _ = alloc;
+    // Create a leaf node wrapping the surface.
+    self.root = try SplitTree.create(alloc, surface);
+    self.focused_surface = surface;
+
+    log.info("Tab initialized with child HWND and SplitTree root, content area {}x{}", .{ client_width, content_h });
 }
 
-/// Deinitialize the tab: deinit surface, destroy child HWND.
-pub fn deinit(self: *Tab) void {
-    if (self.surface_initialized) {
-        self.surface.deinit();
-        self.surface_initialized = false;
+/// Deinitialize the tab: deinit all surfaces in the tree, destroy child HWND.
+pub fn deinit(self: *Tab, alloc: Allocator) void {
+    if (self.root) |root| {
+        SplitTree.deinitAll(root, alloc);
+        alloc.destroy(root);
+        self.root = null;
     }
+    self.focused_surface = null;
     if (self.child_hwnd) |hwnd| {
         _ = DestroyWindow(hwnd);
         self.child_hwnd = null;
@@ -206,11 +213,13 @@ pub fn deinit(self: *Tab) void {
 // Visibility
 // ---------------------------------------------------------------------------
 
-/// Show this tab's child HWND and set focus to it.
+/// Show this tab's child HWND and set focus to the focused surface.
 pub fn show(self: *Tab) void {
     if (self.child_hwnd) |hwnd| {
         _ = ShowWindow(hwnd, SW_SHOW);
-        _ = SetFocus(hwnd);
+    }
+    if (self.focused_surface) |surface| {
+        _ = SetFocus(surface.hwnd);
     }
     self.active = true;
 }
@@ -227,22 +236,158 @@ pub fn hide(self: *Tab) void {
 // Layout
 // ---------------------------------------------------------------------------
 
-/// Resize the child HWND to fill the client area below the tab bar.
+/// Resize the child HWND to fill the client area below the tab bar,
+/// then re-layout all splits within it.
 pub fn resize(self: *Tab, client_width: i32, client_height: i32) void {
     if (self.child_hwnd) |hwnd| {
         const content_y = TAB_BAR_HEIGHT;
         const content_h = @max(client_height - TAB_BAR_HEIGHT, 1);
         _ = MoveWindow(hwnd, 0, content_y, client_width, content_h, 1);
     }
+    // Re-layout splits within the tab content area.
+    if (self.root) |root| {
+        if (!self.zoomed) {
+            self.layoutSplits(root);
+        } else if (self.focused_surface) |surface| {
+            // When zoomed, only the focused surface fills the area.
+            self.layoutZoomed(surface);
+        }
+    }
+}
+
+/// Layout the entire split tree within the tab's content area.
+pub fn layoutSplits(self: *Tab, root: *SplitTree.Node) void {
+    if (self.child_hwnd) |_| {
+        // Content area is always 0,0 relative to the child HWND.
+        // We need the child HWND dimensions.
+        const rect = self.getContentRect();
+        SplitTree.layout(root, rect);
+    }
+}
+
+/// Get the content rect for split layout (relative to child HWND, so origin is 0,0).
+fn getContentRect(self: *Tab) RECT {
+    if (self.child_hwnd) |hwnd| {
+        var rect: RECT = std.mem.zeroes(RECT);
+        if (GetClientRect(hwnd, &rect) != 0) {
+            return rect;
+        }
+    }
+    return .{ .left = 0, .top = 0, .right = 800, .bottom = 570 };
+}
+
+extern "user32" fn GetClientRect(hwnd: HWND, lpRect: *RECT) callconv(.c) BOOL;
+
+/// Layout the zoomed surface to fill the entire tab content area.
+fn layoutZoomed(self: *Tab, surface: *Surface) void {
+    const rect = self.getContentRect();
+    const w = rect.right - rect.left;
+    const h = rect.bottom - rect.top;
+    if (w > 0 and h > 0) {
+        _ = MoveWindow(surface.hwnd, rect.left, rect.top, w, h, 1);
+        surface.width = @intCast(@max(w, 1));
+        surface.height = @intCast(@max(h, 1));
+    }
+}
+
+/// Split the focused surface in the given direction, creating a new surface.
+pub fn splitSurface(
+    self: *Tab,
+    alloc: Allocator,
+    direction: SplitTree.Direction,
+    new_first: bool,
+    config: *const configpkg.Config,
+    core_app: *CoreApp,
+    app: *@import("App.zig"),
+) !*Surface {
+    const focused = self.focused_surface orelse return error.NoFocusedSurface;
+    const root = self.root orelse return error.NoRoot;
+
+    // Find the leaf node containing the focused surface.
+    const leaf = SplitTree.findSurface(root, focused) orelse return error.SurfaceNotFound;
+
+    // Create a new surface with its own child HWND.
+    const child_hwnd = self.child_hwnd orelse return error.NoChildHwnd;
+    const new_surface = try alloc.create(Surface);
+    errdefer alloc.destroy(new_surface);
+    try new_surface.init(app, config, core_app, child_hwnd);
+
+    // Split the leaf node.
+    try SplitTree.split(alloc, leaf, direction, new_surface, new_first);
+
+    // Un-zoom if zoomed.
+    if (self.zoomed) {
+        self.zoomed = false;
+        if (self.root) |r| {
+            SplitTree.showAll(r, true);
+        }
+    }
+
+    // Re-layout.
+    if (self.root) |r| {
+        self.layoutSplits(r);
+    }
+
+    // Focus the new surface.
+    self.focused_surface = new_surface;
+    _ = SetFocus(new_surface.hwnd);
+
+    return new_surface;
+}
+
+/// Remove a surface from the split tree. Returns false if the tab is now empty.
+pub fn removeSurface(self: *Tab, alloc: Allocator, surface: *Surface) bool {
+    const root = self.root orelse return false;
+
+    // If zoomed, un-zoom first.
+    if (self.zoomed) {
+        self.zoomed = false;
+    }
+
+    const new_root = SplitTree.remove(alloc, root, surface);
+
+    // Deinit and free the surface.
+    surface.deinit();
+    alloc.destroy(surface);
+
+    if (new_root) |nr| {
+        self.root = nr;
+        // If the removed surface was focused, focus another one.
+        if (self.focused_surface == surface) {
+            var buf: [64]*Surface = undefined;
+            var count: usize = 0;
+            SplitTree.collectSurfaces(nr, &buf, &count);
+            self.focused_surface = if (count > 0) buf[0] else null;
+            if (self.focused_surface) |fs| {
+                _ = SetFocus(fs.hwnd);
+            }
+        }
+        // Re-layout.
+        self.layoutSplits(nr);
+        return true;
+    } else {
+        self.root = null;
+        self.focused_surface = null;
+        return false;
+    }
 }
 
 /// Get the display title for this tab.
 pub fn getTitle(self: *const Tab) []const u8 {
     if (self.title) |t| return t;
-    if (self.surface_initialized) {
-        if (self.surface.title) |t| return t;
+    if (self.focused_surface) |surface| {
+        if (surface.title) |t| return t;
     }
     return "Terminal";
+}
+
+/// Get the first initialized surface (for backwards compatibility).
+pub fn getFirstSurface(self: *Tab) ?*Surface {
+    const root = self.root orelse return null;
+    var buf: [64]*Surface = undefined;
+    var count: usize = 0;
+    SplitTree.collectSurfaces(root, &buf, &count);
+    return if (count > 0) buf[0] else null;
 }
 
 // ---------------------------------------------------------------------------

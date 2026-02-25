@@ -351,7 +351,7 @@ pub fn init(
 pub fn terminate(self: *App) void {
     // Deinit all tabs.
     for (self.tabs.items) |*tab| {
-        tab.deinit();
+        tab.deinit(self.alloc);
     }
     self.tabs.deinit(self.alloc);
     if (self.owned_config) |*c| c.deinit();
@@ -421,9 +421,6 @@ pub fn createTab(self: *App) !void {
     var tab = &self.tabs.items[new_index];
     try tab.init(hwnd, self.alloc, self.config, self.core_app, self, client_w, client_h);
 
-    // Set tab_index on the surface.
-    tab.surface.tab_index = new_index;
-
     // Make the new tab active.
     self.active_tab = new_index;
     tab.show();
@@ -438,16 +435,9 @@ pub fn createTab(self: *App) !void {
 pub fn closeTab(self: *App, index: usize) !void {
     if (index >= self.tabs.items.len) return;
 
-    // Deinit the tab.
-    self.tabs.items[index].deinit();
+    // Deinit the tab (frees all surfaces in its split tree).
+    self.tabs.items[index].deinit(self.alloc);
     _ = self.tabs.orderedRemove(index);
-
-    // Update tab_index for all remaining tabs.
-    for (self.tabs.items, 0..) |*tab, i| {
-        if (tab.surface_initialized) {
-            tab.surface.tab_index = i;
-        }
-    }
 
     // If no tabs remain, quit.
     if (self.tabs.items.len == 0) {
@@ -465,6 +455,40 @@ pub fn closeTab(self: *App, index: usize) !void {
     // Show the new active tab.
     self.tabs.items[self.active_tab].show();
     self.redrawTabBar();
+}
+
+/// Close a specific surface. If it's the last surface in a tab, close the tab.
+pub fn closeSurface(self: *App, surface: *Surface) !void {
+    // Find which tab contains this surface.
+    for (self.tabs.items, 0..) |*tab, i| {
+        if (tab.root) |root| {
+            const SplitTree = @import("SplitTree.zig");
+            if (SplitTree.findSurface(root, surface) != null) {
+                const tab_alive = tab.removeSurface(self.alloc, surface);
+                if (!tab_alive) {
+                    // Tab is empty, close it.
+                    _ = self.tabs.orderedRemove(i);
+                    if (self.tabs.items.len == 0) {
+                        PostQuitMessage(0);
+                        return;
+                    }
+                    if (self.active_tab >= self.tabs.items.len) {
+                        self.active_tab = self.tabs.items.len - 1;
+                    } else if (self.active_tab > i) {
+                        self.active_tab -= 1;
+                    }
+                    self.tabs.items[self.active_tab].show();
+                    self.redrawTabBar();
+                } else {
+                    // Notify size change after relayout.
+                    if (tab.focused_surface) |fs| {
+                        fs.sizeCallback(fs.width, fs.height);
+                    }
+                }
+                return;
+            }
+        }
+    }
 }
 
 /// Switch to the tab at the given index.
@@ -494,13 +518,32 @@ pub fn switchToTab(self: *App, index: usize) void {
     self.redrawTabBar();
 }
 
-/// Get the active tab's surface, if any.
+/// Get the active tab's focused surface, if any.
 fn getActiveSurface(self: *App) ?*Surface {
     if (self.tabs.items.len == 0) return null;
     if (self.active_tab >= self.tabs.items.len) return null;
-    const tab = &self.tabs.items[self.active_tab];
-    if (!tab.surface_initialized) return null;
-    return &tab.surface;
+    return self.tabs.items[self.active_tab].focused_surface;
+}
+
+/// Get the active tab, if any.
+fn getActiveTab(self: *App) ?*Tab {
+    if (self.tabs.items.len == 0) return null;
+    if (self.active_tab >= self.tabs.items.len) return null;
+    return &self.tabs.items[self.active_tab];
+}
+
+/// Notify all surfaces in the active tab about their current size.
+/// Called after layout so each surface can inform its core about dimension changes.
+fn notifyActiveSurfaceSizes(self: *App) void {
+    const tab = self.getActiveTab() orelse return;
+    const root = tab.root orelse return;
+    const SplitTree = @import("SplitTree.zig");
+    var buf: [64]*Surface = undefined;
+    var count: usize = 0;
+    SplitTree.collectSurfaces(root, &buf, &count);
+    for (buf[0..count]) |surface| {
+        surface.sizeCallback(surface.width, surface.height);
+    }
 }
 
 /// Trigger a repaint of the tab bar area.
@@ -568,14 +611,11 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
                 const w: i32 = @intCast(lparam & 0xFFFF);
                 const h: i32 = @intCast((lparam >> 16) & 0xFFFF);
 
-                // Resize the active tab's child HWND.
+                // Resize the active tab's child HWND and re-layout splits.
                 if (a.tabs.items.len > 0 and a.active_tab < a.tabs.items.len) {
                     a.tabs.items[a.active_tab].resize(w, h);
-                    if (a.tabs.items[a.active_tab].surface_initialized) {
-                        const content_h: u32 = @intCast(@max(h - Tab.TAB_BAR_HEIGHT, 1));
-                        const content_w: u32 = @intCast(@max(w, 1));
-                        a.tabs.items[a.active_tab].surface.sizeCallback(content_w, content_h);
-                    }
+                    // Notify all surfaces in the active tab of their new size.
+                    a.notifyActiveSurfaceSizes();
                 }
                 a.redrawTabBar();
             }
@@ -621,9 +661,15 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
                     SWP_NOZORDER | SWP_FRAMECHANGED,
                 );
                 // Notify all surfaces of the DPI change.
+                const SplitTree = @import("SplitTree.zig");
                 for (a.tabs.items) |*tab| {
-                    if (tab.surface_initialized) {
-                        tab.surface.contentScaleCallback(new_dpi);
+                    if (tab.root) |root| {
+                        var buf: [64]*Surface = undefined;
+                        var count: usize = 0;
+                        SplitTree.collectSurfaces(root, &buf, &count);
+                        for (buf[0..count]) |surface| {
+                            surface.contentScaleCallback(new_dpi);
+                        }
                     }
                 }
             }
@@ -733,14 +779,6 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
                             const tmp = a.tabs.items[a.drag_source_index];
                             a.tabs.items[a.drag_source_index] = a.tabs.items[target_index];
                             a.tabs.items[target_index] = tmp;
-
-                            // Update tab_index on surfaces.
-                            if (a.tabs.items[a.drag_source_index].surface_initialized) {
-                                a.tabs.items[a.drag_source_index].surface.tab_index = a.drag_source_index;
-                            }
-                            if (a.tabs.items[target_index].surface_initialized) {
-                                a.tabs.items[target_index].surface.tab_index = target_index;
-                            }
 
                             // Update active tab and drag source.
                             if (a.active_tab == a.drag_source_index) {
@@ -1159,13 +1197,6 @@ pub fn performAction(
                 const tmp = self.tabs.items[self.active_tab];
                 self.tabs.items[self.active_tab] = self.tabs.items[new_idx];
                 self.tabs.items[new_idx] = tmp;
-                // Update tab_index on surfaces.
-                if (self.tabs.items[self.active_tab].surface_initialized) {
-                    self.tabs.items[self.active_tab].surface.tab_index = self.active_tab;
-                }
-                if (self.tabs.items[new_idx].surface_initialized) {
-                    self.tabs.items[new_idx].surface.tab_index = new_idx;
-                }
                 self.active_tab = new_idx;
                 self.redrawTabBar();
             }
@@ -1174,8 +1205,8 @@ pub fn performAction(
         .set_title => {
             if (self.tabs.items.len > 0 and self.active_tab < self.tabs.items.len) {
                 const tab = &self.tabs.items[self.active_tab];
-                if (tab.surface_initialized) {
-                    tab.surface.title = value.title;
+                if (tab.focused_surface) |surface| {
+                    surface.title = value.title;
                 }
                 // Update window title.
                 if (self.hwnd) |hwnd| {
