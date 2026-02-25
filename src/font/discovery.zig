@@ -8,6 +8,7 @@ const options = @import("main.zig").options;
 const Collection = @import("main.zig").Collection;
 const DeferredFace = @import("main.zig").DeferredFace;
 const Variation = @import("main.zig").face.Variation;
+pub const directwrite = @import("discovery/directwrite.zig");
 
 const log = std.log.scoped(.discovery);
 
@@ -15,6 +16,7 @@ const log = std.log.scoped(.discovery);
 pub const Discover = switch (options.backend) {
     .freetype => void, // no discovery
     .fontconfig_freetype => Fontconfig,
+    .directwrite_freetype => directwrite.DirectWrite,
     .web_canvas => void, // no discovery
     .coretext,
     .coretext_freetype,
