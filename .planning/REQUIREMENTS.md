@@ -11,8 +11,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **WIN-01**: User sees a native WinUI 3 window hosting Ghostty's OpenGL renderer via ANGLE + SwapChainPanel
 - [x] **WIN-02**: Window has native chrome (titlebar, min/max/close, resize handles, Win11 Snap Layouts)
-- [ ] **WIN-03**: Terminal content scales correctly across monitors with different DPI settings
-- [ ] **WIN-04**: User can toggle fullscreen with F11 or configured keybind
+- [x] **WIN-03**: Terminal content scales correctly across monitors with different DPI settings
+- [x] **WIN-04**: User can toggle fullscreen with F11 or configured keybind
 
 ### Tabs & Splits
 
@@ -25,7 +25,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Input & Clipboard
 
-- [ ] **INP-01**: User can copy/paste with Ctrl+Shift+C/V and OSC 52 clipboard protocol works
+- [x] **INP-01**: User can copy/paste with Ctrl+Shift+C/V and OSC 52 clipboard protocol works
 - [x] **INP-02**: All existing Ghostty keybindings work correctly in the native Windows apprt
 
 ### Terminal Features
@@ -34,8 +34,8 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **TERM-02**: Window shows a visible scrollbar for scrollback navigation
 - [ ] **TERM-03**: User can Ctrl+click URLs to open them in the default browser
 - [ ] **TERM-04**: Terminal bell triggers audible/visual notification
-- [ ] **TERM-05**: Configuration hot-reload works — changes to ghostty.conf apply without restart
-- [ ] **TERM-06**: Window follows Windows system theme (light/dark) and respects padding/theme config
+- [x] **TERM-05**: Configuration hot-reload works — changes to ghostty.conf apply without restart
+- [x] **TERM-06**: Window follows Windows system theme (light/dark) and respects padding/theme config
 
 ### Platform Integration
 
@@ -101,22 +101,22 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | WIN-01 | Phase 2 | Complete |
 | WIN-02 | Phase 2 | Complete |
-| WIN-03 | Phase 2 | Pending |
-| WIN-04 | Phase 2 | Pending |
+| WIN-03 | Phase 2 | Complete |
+| WIN-04 | Phase 2 | Complete |
 | TAB-01 | Phase 3 | Pending |
 | TAB-02 | Phase 3 | Pending |
 | TAB-03 | Phase 3 | Pending |
 | TAB-04 | Phase 3 | Pending |
 | TAB-05 | Phase 3 | Pending |
 | TAB-06 | Phase 3 | Pending |
-| INP-01 | Phase 2 | Pending |
+| INP-01 | Phase 2 | Complete |
 | INP-02 | Phase 2 | Complete |
 | TERM-01 | Phase 3 | Pending |
 | TERM-02 | Phase 3 | Pending |
 | TERM-03 | Phase 3 | Pending |
 | TERM-04 | Phase 3 | Pending |
-| TERM-05 | Phase 2 | Pending |
-| TERM-06 | Phase 2 | Pending |
+| TERM-05 | Phase 2 | Complete |
+| TERM-06 | Phase 2 | Complete |
 | PLAT-01 | Phase 4 | Pending |
 | PLAT-02 | Phase 4 | Pending |
 | PLAT-03 | Phase 4 | Pending |

@@ -9,30 +9,30 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 
 ## Current Position
 
-Phase: 2 of 4 (Single Surface Terminal)
-Plan: 1 of 2 in current phase
-Status: Executing Phase 2
-Last activity: 2026-02-25 -- Completed 02-01-PLAN.md
+Phase: 2 of 4 (Single Surface Terminal) -- COMPLETE
+Plan: 2 of 2 in current phase
+Status: Phase 2 Complete
+Last activity: 2026-02-25 -- Completed 02-02-PLAN.md
 
-Progress: [████░░░░░░] 40%
+Progress: [██████░░░░] 60%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
+- Total plans completed: 5
 - Average duration: 8min
-- Total execution time: 0.5 hours
+- Total execution time: 0.6 hours
 
 **By Phase:**
 
 | Phase | Plans | Total  | Avg/Plan |
 |-------|-------|--------|----------|
 | 1     | 3     | 27min  | 9min     |
-| 2     | 1     | 5min   | 5min     |
+| 2     | 2     | 11min  | 5.5min   |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01 (7min), 01-03 (7min), 01-02 (13min), 02-01 (5min)
+- Last 5 plans: 01-01 (7min), 01-03 (7min), 01-02 (13min), 02-01 (5min), 02-02 (6min)
 - Trend: improving
 
 *Updated after each plan completion*
@@ -60,6 +60,11 @@ Recent decisions affecting current work:
 - [02-01]: WGL context released from main thread after init so renderer thread owns GL context
 - [02-01]: Cell-snapped resize uses GetWindowRect/GetClientRect delta for non-client area calculation
 - [02-01]: ToUnicode in WM_KEYDOWN for text generation; WM_CHAR suppressed
+- [02-02]: Win32 clipboard uses CF_UNICODETEXT with synchronous completeClipboardRequest
+- [02-02]: Fullscreen uses WS_POPUP|WS_VISIBLE borderless style filling monitor rect
+- [02-02]: System theme via registry AppsUseLightTheme + WM_SETTINGCHANGE ImmersiveColorSet
+- [02-02]: DwmSetWindowAttribute attribute 20 for dark titlebar (Windows 10 20H1+)
+- [02-02]: AdjustWindowRectExForDpi for DPI-aware cell-snapped resize
 
 ### Pending Todos
 
@@ -73,5 +78,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 02-01-PLAN.md
+Stopped at: Completed 02-02-PLAN.md (Phase 2 complete)
 Resume file: None
