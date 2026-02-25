@@ -714,8 +714,16 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
         },
         WM_MOUSEMOVE => {
             if (app) |a| {
-                // Handle tab drag reordering.
+                // Handle tab drag reordering. Check VK_LBUTTON state
+                // defensively in case we missed a button-up event.
                 if (a.drag_active) {
+                    const VK_LBUTTON: i32 = 0x01;
+                    if (GetKeyState(VK_LBUTTON) >= 0) {
+                        // Left button no longer held -- cancel drag.
+                        a.drag_active = false;
+                        _ = ReleaseCapture();
+                        return 0;
+                    }
                     const x: i16 = @bitCast(@as(u16, @intCast(lparam & 0xFFFF)));
                     const delta = @as(i32, x) - a.drag_start_x;
                     if (@abs(delta) > 5) {
