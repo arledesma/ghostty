@@ -129,10 +129,8 @@ pub fn familyName(self: DeferredFace, buf: []u8) ![]const u8 {
         .fontconfig_freetype => if (self.fc) |fc|
             return (try fc.pattern.get(.family, 0)).string,
 
-        .directwrite_freetype => if (self.dw) |dw| {
-            _ = buf;
-            return dw.path;
-        },
+        .directwrite_freetype => if (self.dw) |dw|
+            return dw.path,
 
         .coretext,
         .coretext_freetype,
@@ -162,10 +160,8 @@ pub fn name(self: DeferredFace, buf: []u8) ![]const u8 {
         .fontconfig_freetype => if (self.fc) |fc|
             return (try fc.pattern.get(.fullname, 0)).string,
 
-        .directwrite_freetype => if (self.dw) |dw| {
-            _ = buf;
-            return dw.path;
-        },
+        .directwrite_freetype => if (self.dw) |dw|
+            return dw.path,
 
         .coretext,
         .coretext_freetype,
@@ -315,12 +311,7 @@ pub fn hasCodepoint(self: DeferredFace, cp: u32, p: ?Presentation) bool {
         // DirectWrite deferred faces don't carry charset metadata, so
         // we can't quickly check codepoint support without loading.
         // Return true to allow the face to be loaded and checked properly.
-        .directwrite_freetype => {
-            _ = self;
-            _ = cp;
-            _ = p;
-            return true;
-        },
+        .directwrite_freetype => return true,
 
         .fontconfig_freetype => {
             // If we are using fontconfig, use the fontconfig metadata to
