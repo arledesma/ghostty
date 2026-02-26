@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 ## Current Position
 
 Phase: 4 of 4 (Platform Integration and Distribution)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: Executing Phase 4
-Last activity: 2026-02-25 -- Completed 04-01-PLAN.md (MSIX packaging pipeline)
+Last activity: 2026-02-25 -- Completed 04-02-PLAN.md (Quick Terminal dropdown)
 
-Progress: [████████░░] 83%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
-- Average duration: 5.7min
-- Total execution time: 1.01 hours
+- Total plans completed: 11
+- Average duration: 5.5min
+- Total execution time: 1.06 hours
 
 **By Phase:**
 
@@ -30,11 +30,11 @@ Progress: [████████░░] 83%
 | 1     | 3     | 27min  | 9min     |
 | 2     | 2     | 11min  | 5.5min   |
 | 3     | 5     | 29min  | 5.8min   |
-| 4     | 1     | 2min   | 2min     |
+| 4     | 2     | 5min   | 2.5min   |
 
 **Recent Trend:**
 
-- Last 5 plans: 03-01 (10min), 03-02 (7min), 03-03 (5min), 03-04 (2min), 04-01 (2min)
+- Last 5 plans: 03-02 (7min), 03-03 (5min), 03-04 (2min), 04-01 (2min), 04-02 (3min)
 - Trend: stable/accelerating
 
 *Updated after each plan completion*
@@ -89,6 +89,10 @@ Recent decisions affecting current work:
 - [04-01]: Placeholder CLSID for toast notification activation stubs -- will be replaced in PLAT-03
 - [04-01]: uap10:RuntimeBehavior=win32App and TrustLevel=mediumIL for full-trust desktop app model
 - [04-01]: Self-signed cert uses CN=GhosttyDev matching Publisher identity in manifest
+- [04-02]: Ctrl+` as default global hotkey with MOD_NOREPEAT for Quick Terminal
+- [04-02]: WS_EX_TOOLWINDOW to exclude Quick Terminal from taskbar/Alt+Tab
+- [04-02]: Linear interpolation animation (step=diff/5, min 4px) at ~60fps via SetTimer
+- [04-02]: Tab module reused for Quick Terminal -- owns single Tab with persistent shell
 
 ### Pending Todos
 
@@ -102,5 +106,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 04-01-PLAN.md
+Stopped at: Completed 04-02-PLAN.md (Quick Terminal dropdown)
 Resume file: None
