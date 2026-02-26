@@ -219,3 +219,160 @@ pub fn L(comptime str: []const u8) [:0]const u16 {
         break :blk &final;
     };
 }
+
+// ---------------------------------------------------------------------------
+// WinRT Toast Notification interfaces
+// ---------------------------------------------------------------------------
+
+/// IToastNotificationManagerStatics — factory for creating toast notifiers.
+/// IID: {50ac103f-d235-4598-bbef-98fe4d1a3ad4}
+pub const IToastNotificationManagerStatics = extern struct {
+    vtable: *const VTable,
+
+    pub const IID = GUID{
+        .data1 = 0x50ac103f,
+        .data2 = 0xd235,
+        .data3 = 0x4598,
+        .data4 = .{ 0xbb, 0xef, 0x98, 0xfe, 0x4d, 0x1a, 0x3a, 0xd4 },
+    };
+
+    pub const VTable = extern struct {
+        // IUnknown (3)
+        QueryInterface: *const fn (*IToastNotificationManagerStatics, *const GUID, *?*anyopaque) callconv(.c) HRESULT,
+        AddRef: *const fn (*IToastNotificationManagerStatics) callconv(.c) u32,
+        Release: *const fn (*IToastNotificationManagerStatics) callconv(.c) u32,
+        // IInspectable (3)
+        GetIids: *const fn (*IToastNotificationManagerStatics, *u32, *?[*]GUID) callconv(.c) HRESULT,
+        GetRuntimeClassName: *const fn (*IToastNotificationManagerStatics, *?HSTRING) callconv(.c) HRESULT,
+        GetTrustLevel: *const fn (*IToastNotificationManagerStatics, *i32) callconv(.c) HRESULT,
+        // IToastNotificationManagerStatics methods
+        CreateToastNotifier: *const fn (*IToastNotificationManagerStatics, *?*IToastNotifier) callconv(.c) HRESULT,
+        CreateToastNotifierWithId: *const fn (*IToastNotificationManagerStatics, HSTRING, *?*IToastNotifier) callconv(.c) HRESULT,
+    };
+};
+
+/// IToastNotifier — shows toast notifications.
+/// IID: {75927b93-03f3-41ec-91d3-6e5bac1b38e3}
+pub const IToastNotifier = extern struct {
+    vtable: *const VTable,
+
+    pub const IID = GUID{
+        .data1 = 0x75927b93,
+        .data2 = 0x03f3,
+        .data3 = 0x41ec,
+        .data4 = .{ 0x91, 0xd3, 0x6e, 0x5b, 0xac, 0x1b, 0x38, 0xe3 },
+    };
+
+    pub const VTable = extern struct {
+        // IUnknown (3)
+        QueryInterface: *const fn (*IToastNotifier, *const GUID, *?*anyopaque) callconv(.c) HRESULT,
+        AddRef: *const fn (*IToastNotifier) callconv(.c) u32,
+        Release: *const fn (*IToastNotifier) callconv(.c) u32,
+        // IInspectable (3)
+        GetIids: *const fn (*IToastNotifier, *u32, *?[*]GUID) callconv(.c) HRESULT,
+        GetRuntimeClassName: *const fn (*IToastNotifier, *?HSTRING) callconv(.c) HRESULT,
+        GetTrustLevel: *const fn (*IToastNotifier, *i32) callconv(.c) HRESULT,
+        // IToastNotifier methods
+        Show: *const fn (*IToastNotifier, *IToastNotification) callconv(.c) HRESULT,
+    };
+};
+
+/// IToastNotification — represents a single toast notification.
+/// IID: {997e2675-059e-4e60-8b06-1760917c8b80}
+pub const IToastNotification = extern struct {
+    vtable: *const VTable,
+
+    pub const IID = GUID{
+        .data1 = 0x997e2675,
+        .data2 = 0x059e,
+        .data3 = 0x4e60,
+        .data4 = .{ 0x8b, 0x06, 0x17, 0x60, 0x91, 0x7c, 0x8b, 0x80 },
+    };
+
+    pub const VTable = extern struct {
+        // IUnknown (3)
+        QueryInterface: *const fn (*IToastNotification, *const GUID, *?*anyopaque) callconv(.c) HRESULT,
+        AddRef: *const fn (*IToastNotification) callconv(.c) u32,
+        Release: *const fn (*IToastNotification) callconv(.c) u32,
+        // IInspectable (3)
+        GetIids: *const fn (*IToastNotification, *u32, *?[*]GUID) callconv(.c) HRESULT,
+        GetRuntimeClassName: *const fn (*IToastNotification, *?HSTRING) callconv(.c) HRESULT,
+        GetTrustLevel: *const fn (*IToastNotification, *i32) callconv(.c) HRESULT,
+    };
+};
+
+/// IToastNotificationFactory — creates IToastNotification instances from XML.
+/// IID: {04124b20-82c6-4229-b109-fd9ed4662b53}
+pub const IToastNotificationFactory = extern struct {
+    vtable: *const VTable,
+
+    pub const IID = GUID{
+        .data1 = 0x04124b20,
+        .data2 = 0x82c6,
+        .data3 = 0x4229,
+        .data4 = .{ 0xb1, 0x09, 0xfd, 0x9e, 0xd4, 0x66, 0x2b, 0x53 },
+    };
+
+    pub const VTable = extern struct {
+        // IUnknown (3)
+        QueryInterface: *const fn (*IToastNotificationFactory, *const GUID, *?*anyopaque) callconv(.c) HRESULT,
+        AddRef: *const fn (*IToastNotificationFactory) callconv(.c) u32,
+        Release: *const fn (*IToastNotificationFactory) callconv(.c) u32,
+        // IInspectable (3)
+        GetIids: *const fn (*IToastNotificationFactory, *u32, *?[*]GUID) callconv(.c) HRESULT,
+        GetRuntimeClassName: *const fn (*IToastNotificationFactory, *?HSTRING) callconv(.c) HRESULT,
+        GetTrustLevel: *const fn (*IToastNotificationFactory, *i32) callconv(.c) HRESULT,
+        // IToastNotificationFactory methods
+        CreateToastNotification: *const fn (*IToastNotificationFactory, *IXmlDocument, *?*IToastNotification) callconv(.c) HRESULT,
+    };
+};
+
+/// IXmlDocument — represents an XML DOM document (Windows.Data.Xml.Dom.XmlDocument).
+/// IID: {f7f3a506-1e87-42d6-bcfb-b8c809fa5494}
+pub const IXmlDocument = extern struct {
+    vtable: *const VTable,
+
+    pub const IID = GUID{
+        .data1 = 0xf7f3a506,
+        .data2 = 0x1e87,
+        .data3 = 0x42d6,
+        .data4 = .{ 0xbc, 0xfb, 0xb8, 0xc8, 0x09, 0xfa, 0x54, 0x94 },
+    };
+
+    pub const VTable = extern struct {
+        // IUnknown (3)
+        QueryInterface: *const fn (*IXmlDocument, *const GUID, *?*anyopaque) callconv(.c) HRESULT,
+        AddRef: *const fn (*IXmlDocument) callconv(.c) u32,
+        Release: *const fn (*IXmlDocument) callconv(.c) u32,
+        // IInspectable (3)
+        GetIids: *const fn (*IXmlDocument, *u32, *?[*]GUID) callconv(.c) HRESULT,
+        GetRuntimeClassName: *const fn (*IXmlDocument, *?HSTRING) callconv(.c) HRESULT,
+        GetTrustLevel: *const fn (*IXmlDocument, *i32) callconv(.c) HRESULT,
+    };
+};
+
+/// IXmlDocumentIO — provides LoadXml method for loading XML from string.
+/// IID: {6cd0e74e-ee65-4489-9ebf-ca43e87ba637}
+pub const IXmlDocumentIO = extern struct {
+    vtable: *const VTable,
+
+    pub const IID = GUID{
+        .data1 = 0x6cd0e74e,
+        .data2 = 0xee65,
+        .data3 = 0x4489,
+        .data4 = .{ 0x9e, 0xbf, 0xca, 0x43, 0xe8, 0x7b, 0xa6, 0x37 },
+    };
+
+    pub const VTable = extern struct {
+        // IUnknown (3)
+        QueryInterface: *const fn (*IXmlDocumentIO, *const GUID, *?*anyopaque) callconv(.c) HRESULT,
+        AddRef: *const fn (*IXmlDocumentIO) callconv(.c) u32,
+        Release: *const fn (*IXmlDocumentIO) callconv(.c) u32,
+        // IInspectable (3)
+        GetIids: *const fn (*IXmlDocumentIO, *u32, *?[*]GUID) callconv(.c) HRESULT,
+        GetRuntimeClassName: *const fn (*IXmlDocumentIO, *?HSTRING) callconv(.c) HRESULT,
+        GetTrustLevel: *const fn (*IXmlDocumentIO, *i32) callconv(.c) HRESULT,
+        // IXmlDocumentIO methods
+        LoadXml: *const fn (*IXmlDocumentIO, HSTRING) callconv(.c) HRESULT,
+    };
+};
