@@ -16,6 +16,7 @@ const wgl = @import("wgl.zig");
 const Surface = @import("Surface.zig");
 const SearchOverlay = @import("SearchOverlay.zig");
 const Tab = @import("Tab.zig");
+const QuickTerminal = @import("QuickTerminal.zig");
 
 const log = std.log.scoped(.windows);
 
@@ -102,6 +103,8 @@ const WM_CHAR: u32 = 0x0102;
 const WM_SYSCHAR: u32 = 0x0106;
 const WM_DPICHANGED: u32 = 0x02E0;
 const WM_SETTINGCHANGE: u32 = 0x001A;
+const WM_HOTKEY: u32 = 0x0312;
+const WM_ACTIVATE: u32 = 0x0006;
 
 // Mouse messages
 const WM_LBUTTONDOWN: u32 = 0x0201;
@@ -222,6 +225,8 @@ extern "user32" fn SetFocus(hwnd: HWND) callconv(.c) ?HWND;
 extern "user32" fn SetCapture(hwnd: HWND) callconv(.c) ?HWND;
 extern "user32" fn ReleaseCapture() callconv(.c) BOOL;
 extern "user32" fn GetKeyState(nVirtKey: i32) callconv(.c) i16;
+extern "user32" fn RegisterHotKey(hwnd: ?HWND, id: i32, fsModifiers: u32, vk: u32) callconv(.c) BOOL;
+extern "user32" fn UnregisterHotKey(hwnd: ?HWND, id: i32) callconv(.c) BOOL;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?LPCWSTR) callconv(.c) ?HINSTANCE;
 
 // DPI awareness
@@ -260,6 +265,14 @@ extern "user32" fn FlashWindow(hwnd: HWND, bInvert: BOOL) callconv(.c) BOOL;
 extern "user32" fn SetCursor(hCursor: ?*anyopaque) callconv(.c) ?*anyopaque;
 const IDC_HAND: usize = 32649;
 
+// Global hotkey constants
+const QUICK_TERMINAL_HOTKEY_ID: i32 = 1;
+const MOD_ALT: u32 = 0x0001;
+const MOD_CONTROL: u32 = 0x0002;
+const MOD_SHIFT: u32 = 0x0004;
+const MOD_WIN: u32 = 0x0008;
+const MOD_NOREPEAT: u32 = 0x4000;
+
 // ---------------------------------------------------------------------------
 // App state
 // ---------------------------------------------------------------------------
@@ -288,6 +301,12 @@ drag_active: bool = false,
 drag_source_index: usize = 0,
 drag_start_x: i32 = 0,
 
+/// Quick Terminal dropdown instance.
+quick_terminal: QuickTerminal = undefined,
+
+/// Whether the global hotkey was successfully registered.
+hotkey_registered: bool = false,
+
 pub fn init(
     self: *App,
     core_app: *CoreApp,
@@ -310,6 +329,8 @@ pub fn init(
         .drag_active = false,
         .drag_source_index = 0,
         .drag_start_x = 0,
+        .quick_terminal = undefined,
+        .hotkey_registered = false,
     };
 
     // Set per-monitor DPI awareness V2 before any window creation.
@@ -372,11 +393,35 @@ pub fn init(
     // Apply initial titlebar theme based on system setting.
     applyThemeToTitlebar(hwnd, detectSystemThemeIsDark());
 
+    // Initialize the Quick Terminal.
+    self.quick_terminal = QuickTerminal.init(self);
+
+    // Register global hotkey for Quick Terminal (Ctrl+` by default).
+    // VK_OEM_3 = 0xC0 is the backtick/tilde key.
+    const VK_OEM_3: u32 = 0xC0;
+    if (RegisterHotKey(hwnd, QUICK_TERMINAL_HOTKEY_ID, MOD_CONTROL | MOD_NOREPEAT, VK_OEM_3) != 0) {
+        self.hotkey_registered = true;
+        log.info("Global hotkey Ctrl+` registered for Quick Terminal", .{});
+    } else {
+        log.warn("Failed to register global hotkey for Quick Terminal (may be claimed by another app)", .{});
+    }
+
     _ = ShowWindow(hwnd, SW_SHOW);
     log.info("Win32 window created and shown with tab bar", .{});
 }
 
 pub fn terminate(self: *App) void {
+    // Deinit the Quick Terminal before destroying the main window.
+    self.quick_terminal.deinit();
+
+    // Unregister global hotkey.
+    if (self.hotkey_registered) {
+        if (self.hwnd) |hwnd| {
+            _ = UnregisterHotKey(hwnd, QUICK_TERMINAL_HOTKEY_ID);
+        }
+        self.hotkey_registered = false;
+    }
+
     // Deinit all tabs.
     for (self.tabs.items) |*tab| {
         tab.deinit(self.alloc);
@@ -882,6 +927,15 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
             }
             return 0;
         },
+        WM_HOTKEY => {
+            if (app) |a| {
+                const hotkey_id: i32 = @intCast(wparam);
+                if (hotkey_id == QUICK_TERMINAL_HOTKEY_ID) {
+                    a.quick_terminal.toggle();
+                }
+            }
+            return 0;
+        },
         WM_APP_WAKEUP => {
             return 0;
         },
@@ -1276,6 +1330,10 @@ pub fn performAction(
         },
         .toggle_fullscreen => {
             self.toggleFullscreen();
+            return true;
+        },
+        .toggle_quick_terminal => {
+            self.quick_terminal.toggle();
             return true;
         },
         .reload_config => {
