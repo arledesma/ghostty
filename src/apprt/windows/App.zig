@@ -231,6 +231,7 @@ extern "user32" fn RegisterHotKey(hwnd: ?HWND, id: i32, fsModifiers: u32, vk: u3
 extern "user32" fn UnregisterHotKey(hwnd: ?HWND, id: i32) callconv(.c) BOOL;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?LPCWSTR) callconv(.c) ?HINSTANCE;
 extern "user32" fn GetForegroundWindow() callconv(.c) ?HWND;
+extern "user32" fn SetForegroundWindow(hwnd: HWND) callconv(.c) BOOL;
 extern "user32" fn SendMessageW(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LRESULT;
 
 // DPI awareness
@@ -657,6 +658,23 @@ pub fn redrawTabBar(self: *App) void {
         };
         _ = InvalidateRect(hwnd, &tab_bar_rect, 1);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Toast activation
+// ---------------------------------------------------------------------------
+
+/// Activate the window from a toast notification click and switch to the
+/// specified tab. Called by Toast.handleActivation or when processing a
+/// toast launch argument.
+pub fn activateFromToast(self: *App, tab_index: usize) void {
+    if (self.hwnd) |hwnd| {
+        const SW_RESTORE: i32 = 9;
+        _ = ShowWindow(hwnd, SW_RESTORE);
+        _ = SetForegroundWindow(hwnd);
+    }
+    self.switchToTab(tab_index);
+    log.info("Activated from toast: switched to tab {}", .{tab_index});
 }
 
 // ---------------------------------------------------------------------------

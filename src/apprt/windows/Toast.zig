@@ -30,6 +30,11 @@ notifier: ?*com.IToastNotifier = null,
 /// Back-reference to the owning App for tab activation on click.
 app: *@import("App.zig") = undefined,
 
+/// Last tab index passed to show(), stored for activation on toast click.
+/// When the user clicks a toast notification while the app is running,
+/// handleActivation() uses this to switch to the correct tab.
+last_tab_index: ?usize = null,
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
@@ -61,23 +66,30 @@ pub fn deinit(self: *Toast) void {
 /// This function is non-critical: all errors are logged and swallowed.
 /// Toast failures must never crash the application.
 pub fn show(self: *Toast, title: [:0]const u8, body: [:0]const u8, tab_index: ?usize) void {
-    _ = tab_index;
-    self.showInner(title, body) catch |err| {
+    self.last_tab_index = tab_index;
+    self.showInner(title, body, tab_index) catch |err| {
         log.warn("Toast notification failed: {}", .{err});
     };
 }
 
-fn showInner(self: *Toast, title: [:0]const u8, body: [:0]const u8) com.HResultError!void {
+fn showInner(self: *Toast, title: [:0]const u8, body: [:0]const u8, tab_index: ?usize) com.HResultError!void {
     // Lazy-init the notifier on first call.
     if (self.notifier == null) {
         self.notifier = try initNotifier();
     }
     const notifier = self.notifier orelse return error.HResultFail;
 
-    // Build toast XML string.
-    // Format: <toast><visual><binding template="ToastGeneric"><text>{title}</text><text>{body}</text></binding></visual></toast>
+    // Build toast XML string with optional launch attribute for tab activation.
+    // The launch attribute encodes the tab index so clicking the toast can
+    // switch to the correct tab. Format: launch="tab:N"
+    // TODO: Full COM activation callback (INotificationActivationCallback)
+    // will enable click handling for packaged (MSIX) apps on cold-start.
+    // For now, the in-process handleActivation() covers the warm-start case.
     var xml_buf: [2048]u8 = undefined;
-    const xml_str = std.fmt.bufPrint(&xml_buf, "<toast><visual><binding template=\"ToastGeneric\"><text>{s}</text><text>{s}</text></binding></visual></toast>", .{ title, body }) catch return error.HResultFail;
+    const xml_str = if (tab_index) |idx|
+        std.fmt.bufPrint(&xml_buf, "<toast launch=\"tab:{d}\"><visual><binding template=\"ToastGeneric\"><text>{s}</text><text>{s}</text></binding></visual></toast>", .{ idx, title, body }) catch return error.HResultFail
+    else
+        std.fmt.bufPrint(&xml_buf, "<toast><visual><binding template=\"ToastGeneric\"><text>{s}</text><text>{s}</text></binding></visual></toast>", .{ title, body }) catch return error.HResultFail;
 
     // Convert XML to UTF-16.
     var xml_wide: [2048]u16 = undefined;
@@ -153,6 +165,35 @@ fn showInner(self: *Toast, title: [:0]const u8, body: [:0]const u8) com.HResultE
 
     log.info("Toast notification shown: {s}", .{title});
 }
+
+// ---------------------------------------------------------------------------
+// Toast click activation (warm-start only)
+// ---------------------------------------------------------------------------
+
+/// Handle a toast notification click when the app is already running.
+/// Brings the main window to the foreground and switches to the tab
+/// that was active when the notification was shown.
+///
+/// Note: This only works for warm-start (app already running). For cold-start
+/// scenarios where Windows relaunches the exe via COM activation, a full
+/// INotificationActivationCallback implementation is needed (deferred).
+pub fn handleActivation(self: *Toast) void {
+    const tab_index = self.last_tab_index orelse return;
+    const app = self.app;
+
+    // Bring the window to the foreground and restore if minimized.
+    if (app.hwnd) |hwnd| {
+        const SW_RESTORE: i32 = 9;
+        _ = ShowWindow(hwnd, SW_RESTORE);
+        _ = SetForegroundWindow(hwnd);
+    }
+
+    // Switch to the tab that triggered the notification.
+    app.switchToTab(tab_index);
+    log.info("Toast activation: switched to tab {}", .{tab_index});
+}
+
+extern "user32" fn ShowWindow(hwnd: HWND, nCmdShow: i32) callconv(.c) BOOL;
 
 /// Initialize the WinRT toast notifier.
 fn initNotifier() com.HResultError!*com.IToastNotifier {
