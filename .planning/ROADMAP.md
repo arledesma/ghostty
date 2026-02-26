@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation & Rendering Bridge** - COM bridge, ANGLE+SwapChainPanel proof-of-concept, DirectWrite font discovery, apprt scaffold (completed 2026-02-25)
 - [x] **Phase 2: Single Terminal Surface** - Working terminal in native WinUI 3 window with input, clipboard, DPI, fullscreen, config (completed 2026-02-25)
 - [x] **Phase 3: Tabs, Splits & Terminal Features** - Multi-tab, split-pane interface with search, scrollbar, URL handling, bell (completed 2026-02-25)
-- [ ] **Phase 4: Platform Integration & Distribution** - MSIX packaging, Quick Terminal, notifications, command palette
+- [x] **Phase 4: Platform Integration & Distribution** - MSIX packaging, Quick Terminal, notifications, command palette (completed 2026-02-26)
 
 ## Phase Details
 
@@ -79,12 +79,13 @@ Plans:
   2. User can summon a dropdown terminal from any context using a global hotkey
   3. User receives a Windows toast notification when a long-running command completes
   4. User can open a searchable command palette with Ctrl+Shift+P to discover and execute actions
-**Plans**: 3 plans
+**Plans**: 4 plans
 
 Plans:
 - [ ] 04-01-PLAN.md — MSIX packaging pipeline (AppxManifest.xml, assets, build script)
 - [ ] 04-02-PLAN.md — Quick Terminal dropdown with global hotkey and slide animation
 - [ ] 04-03-PLAN.md — Toast notifications for command completion and searchable command palette
+- [ ] 04-04-PLAN.md — Gap closure: VCLibs framework dependency and toast click tab activation
 
 ## Progress
 
@@ -96,4 +97,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Foundation & Rendering Bridge | 1/3 | Complete    | 2026-02-25 |
 | 2. Single Terminal Surface | 0/2 | Complete    | 2026-02-25 |
 | 3. Tabs, Splits & Terminal Features | 5/5 | Complete   | 2026-02-25 |
-| 4. Platform Integration & Distribution | 0/3 | Not started | - |
+| 4. Platform Integration & Distribution | 4/4 | Complete   | 2026-02-26 |

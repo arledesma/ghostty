@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 ## Current Position
 
 Phase: 4 of 4 (Platform Integration and Distribution)
-Plan: 3 of 3 in current phase
-Status: Phase 4 Complete -- All plans executed
-Last activity: 2026-02-25 -- Completed 04-03-PLAN.md (Toast notifications and command palette)
+Plan: 4 of 4 in current phase
+Status: Phase 4 Complete -- All plans executed (including gap closure)
+Last activity: 2026-02-26 -- Completed 04-04-PLAN.md (Gap closure: VCLibs dependency + toast tab activation)
 
 Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 12
-- Average duration: 5.4min
-- Total execution time: 1.15 hours
+- Total plans completed: 13
+- Average duration: 5.2min
+- Total execution time: 1.18 hours
 
 **By Phase:**
 
@@ -30,11 +30,11 @@ Progress: [██████████] 100%
 | 1     | 3     | 27min  | 9min     |
 | 2     | 2     | 11min  | 5.5min   |
 | 3     | 5     | 29min  | 5.8min   |
-| 4     | 3     | 10min  | 3.3min   |
+| 4     | 4     | 12min  | 3.0min   |
 
 **Recent Trend:**
 
-- Last 5 plans: 03-03 (5min), 03-04 (2min), 04-01 (2min), 04-02 (3min), 04-03 (5min)
+- Last 5 plans: 03-04 (2min), 04-01 (2min), 04-02 (3min), 04-03 (5min), 04-04 (2min)
 - Trend: stable/accelerating
 
 *Updated after each plan completion*
@@ -98,6 +98,9 @@ Recent decisions affecting current work:
 - [04-03]: Keyboard intercept via SendMessageW forwarding when command palette visible
 - [04-03]: Toast fires only when GetForegroundWindow != main HWND (unfocused check)
 - [04-03]: Comptime command.defaults list from input/command.zig for palette entries
+- [04-04]: Store last_tab_index on Toast struct for warm-start activation instead of COM callback
+- [04-04]: Deferred full INotificationActivationCallback COM registration (cold-start scenario)
+- [04-04]: VCLibs 14.0.30704.0 MinVersion targeting VS 2022 17.x era for broad compatibility
 
 ### Pending Todos
 
@@ -110,6 +113,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-25
-Stopped at: Completed 04-03-PLAN.md (Toast notifications and command palette) -- All phases complete
+Last session: 2026-02-26
+Stopped at: Completed 04-04-PLAN.md (Gap closure: VCLibs + toast tab activation) -- All phases complete
 Resume file: None
