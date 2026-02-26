@@ -41,8 +41,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **PLAT-01**: App is packaged as MSIX for Windows Store distribution and sideload
 - [x] **PLAT-02**: User can summon a dropdown terminal with a global hotkey (Quick Terminal)
-- [ ] **PLAT-03**: User receives Windows toast notifications when long-running commands complete
-- [ ] **PLAT-04**: User can open a searchable command palette with Ctrl+Shift+P
+- [x] **PLAT-03**: User receives Windows toast notifications when long-running commands complete
+- [x] **PLAT-04**: User can open a searchable command palette with Ctrl+Shift+P
 
 ### Infrastructure
 
@@ -119,8 +119,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TERM-06 | Phase 2 | Complete |
 | PLAT-01 | Phase 4 | Complete |
 | PLAT-02 | Phase 4 | Complete |
-| PLAT-03 | Phase 4 | Pending |
-| PLAT-04 | Phase 4 | Pending |
+| PLAT-03 | Phase 4 | Complete |
+| PLAT-04 | Phase 4 | Complete |
 | INFRA-01 | Phase 1 | Complete |
 | INFRA-02 | Phase 1 | Complete |
 | INFRA-03 | Phase 1 | Complete |
