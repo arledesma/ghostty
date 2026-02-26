@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation & Rendering Bridge** - COM bridge, ANGLE+SwapChainPanel proof-of-concept, DirectWrite font discovery, apprt scaffold (completed 2026-02-25)
 - [x] **Phase 2: Single Terminal Surface** - Working terminal in native WinUI 3 window with input, clipboard, DPI, fullscreen, config (completed 2026-02-25)
-- [x] **Phase 3: Tabs, Splits & Terminal Features** - Multi-tab, split-pane interface with search, scrollbar, URL handling, bell (completed 2026-02-25)
+- [ ] **Phase 3: Tabs, Splits & Terminal Features** - Multi-tab, split-pane interface with search, scrollbar, URL handling, bell (UAT gap closure in progress)
 - [x] **Phase 4: Platform Integration & Distribution** - MSIX packaging, Quick Terminal, notifications, command palette (completed 2026-02-26)
 
 ## Phase Details
@@ -61,14 +61,16 @@ Plans:
   3. User can search scrollback with Ctrl+Shift+F and navigate results in an overlay
   4. User can scroll through terminal history using a visible scrollbar and Ctrl+click URLs to open them in the browser
   5. Terminal bell triggers an audible or visual notification
-**Plans**: 5 plans
+**Plans**: 7 plans
 
 Plans:
 - [x] 03-00-PLAN.md — Phase 2 UAT gap closure (keyboard input, clipboard, config reload)
 - [x] 03-01-PLAN.md — Tab infrastructure, multi-surface lifecycle, and custom tab bar in titlebar
 - [x] 03-02-PLAN.md — Split panes with binary tree layout and directional navigation
 - [x] 03-03-PLAN.md — Search overlay, scrollbar, URL click handling, and bell notification
-- [ ] 03-04-PLAN.md — Gap closure: scrollbar GDI painting in child HWND (TERM-02)
+- [x] 03-04-PLAN.md — Gap closure: scrollbar GDI painting in child HWND (TERM-02)
+- [ ] 03-05-PLAN.md — Gap closure: fix keyboard input (Ctrl+C, keybindings, dangling utf8 pointer)
+- [ ] 03-06-PLAN.md — Gap closure: fix URL click crash (MTA/STA) and shell environment inheritance
 
 ### Phase 4: Platform Integration & Distribution
 **Goal**: Ghostty is distributable through the Windows Store and offers platform-level integration features that differentiate it from other terminals
@@ -96,5 +98,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Foundation & Rendering Bridge | 1/3 | Complete    | 2026-02-25 |
 | 2. Single Terminal Surface | 0/2 | Complete    | 2026-02-25 |
-| 3. Tabs, Splits & Terminal Features | 5/5 | Complete   | 2026-02-25 |
+| 3. Tabs, Splits & Terminal Features | 5/7 | UAT Gap Closure   | — |
 | 4. Platform Integration & Distribution | 4/4 | Complete   | 2026-02-26 |
