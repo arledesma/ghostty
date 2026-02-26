@@ -17,6 +17,8 @@ const Surface = @import("Surface.zig");
 const SearchOverlay = @import("SearchOverlay.zig");
 const Tab = @import("Tab.zig");
 const QuickTerminal = @import("QuickTerminal.zig");
+const Toast = @import("Toast.zig");
+const CommandPalette = @import("CommandPalette.zig");
 
 const log = std.log.scoped(.windows);
 
@@ -228,6 +230,8 @@ extern "user32" fn GetKeyState(nVirtKey: i32) callconv(.c) i16;
 extern "user32" fn RegisterHotKey(hwnd: ?HWND, id: i32, fsModifiers: u32, vk: u32) callconv(.c) BOOL;
 extern "user32" fn UnregisterHotKey(hwnd: ?HWND, id: i32) callconv(.c) BOOL;
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?LPCWSTR) callconv(.c) ?HINSTANCE;
+extern "user32" fn GetForegroundWindow() callconv(.c) ?HWND;
+extern "user32" fn SendMessageW(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LRESULT;
 
 // DPI awareness
 extern "user32" fn SetProcessDpiAwarenessContext(value: isize) callconv(.c) BOOL;
@@ -304,6 +308,12 @@ drag_start_x: i32 = 0,
 /// Quick Terminal dropdown instance.
 quick_terminal: QuickTerminal = undefined,
 
+/// Toast notification manager for desktop notifications.
+toast: Toast = undefined,
+
+/// Command palette overlay (VS Code-style Ctrl+Shift+P).
+command_palette: CommandPalette = undefined,
+
 /// Whether the global hotkey was successfully registered.
 hotkey_registered: bool = false,
 
@@ -330,6 +340,8 @@ pub fn init(
         .drag_source_index = 0,
         .drag_start_x = 0,
         .quick_terminal = undefined,
+        .toast = undefined,
+        .command_palette = undefined,
         .hotkey_registered = false,
     };
 
@@ -396,6 +408,10 @@ pub fn init(
     // Initialize the Quick Terminal.
     self.quick_terminal = QuickTerminal.init(self);
 
+    // Initialize toast notifications and command palette.
+    self.toast = Toast.init(self);
+    self.command_palette = CommandPalette.init(self);
+
     // Register global hotkey for Quick Terminal (Ctrl+` by default).
     // VK_OEM_3 = 0xC0 is the backtick/tilde key.
     const VK_OEM_3: u32 = 0xC0;
@@ -411,7 +427,9 @@ pub fn init(
 }
 
 pub fn terminate(self: *App) void {
-    // Deinit the Quick Terminal before destroying the main window.
+    // Deinit overlays and features before destroying the main window.
+    self.command_palette.deinit();
+    self.toast.deinit();
     self.quick_terminal.deinit();
 
     // Unregister global hotkey.
@@ -714,6 +732,13 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
         },
         WM_KEYDOWN, WM_SYSKEYDOWN, WM_KEYUP, WM_SYSKEYUP => {
             if (app) |a| {
+                // Intercept keyboard input when command palette is active.
+                if (a.command_palette.visible) {
+                    if (a.command_palette.hwnd) |palette_hwnd| {
+                        _ = SendMessageW(palette_hwnd, msg, wparam, lparam);
+                        return 0;
+                    }
+                }
                 if (a.getActiveSurface()) |surface| {
                     const input_mod = @import("input.zig");
                     if (input_mod.translateKeyEvent(msg, wparam, lparam)) |key_event| {
@@ -727,6 +752,15 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.c) LR
             return DefWindowProcW(hwnd, msg, wparam, lparam);
         },
         WM_CHAR, WM_SYSCHAR => {
+            // Forward WM_CHAR to command palette when it's active.
+            if (app) |a| {
+                if (a.command_palette.visible) {
+                    if (a.command_palette.hwnd) |palette_hwnd| {
+                        _ = SendMessageW(palette_hwnd, msg, wparam, lparam);
+                        return 0;
+                    }
+                }
+            }
             return 0;
         },
         WM_DPICHANGED => {
@@ -1334,6 +1368,20 @@ pub fn performAction(
         },
         .toggle_quick_terminal => {
             self.quick_terminal.toggle();
+            return true;
+        },
+        .toggle_command_palette => {
+            self.command_palette.toggle();
+            return true;
+        },
+        .desktop_notification => |notification| {
+            // Only show toast when the terminal window is not focused.
+            if (self.hwnd) |hwnd| {
+                const fg = GetForegroundWindow();
+                if (fg != hwnd) {
+                    self.toast.show(notification.title, notification.body, self.active_tab);
+                }
+            }
             return true;
         },
         .reload_config => {
