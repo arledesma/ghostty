@@ -79,11 +79,12 @@ Plans:
   2. User can summon a dropdown terminal from any context using a global hotkey
   3. User receives a Windows toast notification when a long-running command completes
   4. User can open a searchable command palette with Ctrl+Shift+P to discover and execute actions
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: MSIX packaging and distribution
-- [ ] 04-02: Quick Terminal, notifications, and command palette
+- [ ] 04-01-PLAN.md — MSIX packaging pipeline (AppxManifest.xml, assets, build script)
+- [ ] 04-02-PLAN.md — Quick Terminal dropdown with global hotkey and slide animation
+- [ ] 04-03-PLAN.md — Toast notifications for command completion and searchable command palette
 
 ## Progress
 
@@ -95,4 +96,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Foundation & Rendering Bridge | 1/3 | Complete    | 2026-02-25 |
 | 2. Single Terminal Surface | 0/2 | Complete    | 2026-02-25 |
 | 3. Tabs, Splits & Terminal Features | 5/5 | Complete   | 2026-02-25 |
-| 4. Platform Integration & Distribution | 0/2 | Not started | - |
+| 4. Platform Integration & Distribution | 0/3 | Not started | - |
